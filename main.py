@@ -155,6 +155,53 @@ async def adddrop_check_loop():
                 if resp.status != 200:
                     print(f"Failed to fetch add/drops: HTTP {resp.status}")
                     await asyncio.sleep(CHECK_INTERVAL)
+                    continue
+
+                xml_data = await resp.text()
+                root = ET.fromstring(xml_data)
+
+                transactions = root.findall("transaction")
+                print(f"📦 Found {len(transactions)} total add/drop transactions")
+
+                for tx in transactions:
+                    if tx.get("type") != "FREE_AGENT":
+                        continue
+
+                    tx_id = tx.get("timestamp")
+                    raw_transaction = tx.get("transaction", "")
+                    player_id = None
+                    parts = raw_transaction.replace('|', ',').split(',')
+                    for part in parts:
+                        if part.strip().isdigit():
+                            player_id = part.strip()
+                            break
+                    team = tx.get("franchise")
+
+                    print(f"🕵️ TX: type=FREE_AGENT, player_id={player_id}, team={team}, ts={tx_id}")
+
+                    if not tx_id or not player_id:
+                        print("⚠️ Incomplete transaction entry. Skipping.")
+                        continue
+
+                    if tx_id in posted_adddrops:
+                        continue
+
+                    try:
+                        timestamp = datetime.fromtimestamp(int(tx_id))
+                    except ValueError:
+                        print(f"⚠️ Invalid timestamp: {tx_id}")
+                        continue
+
+                    posted_adddrops.add(tx_id)
+                    team_name = franchise_names.get(team, f"Team {team}")
+                    player = player_names.get(player_id, f"Player #{player_id}")
+                    action_type = "acquired" if not raw_transaction.startswith("|") else "dropped"
+                    emoji = "🟢" if action_type == "acquired" else "🔴"
+                    action_word = "signed" if action_type == "acquired" else "released"
+                    msg = f"{emoji} **Add/Drop Alert ({timestamp.strftime('%b %d, %Y %I:%M %p')}):** {team_name} {action_word} {player}"
+                    await adddrop_channel.send(msg)
+
+        await asyncio.sleep(CHECK_INTERVAL)
                     
 
 async def rookie_post_check_loop():
