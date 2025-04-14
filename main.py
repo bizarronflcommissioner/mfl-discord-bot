@@ -78,7 +78,7 @@ async def fetch_recent_trades():
                 return []
 
             xml_data = await resp.text()
-                print(f"📄 Raw Add/Drop XML snippet: {xml_data[:500]}")
+print(f"📄 Raw Add/Drop XML snippet: {xml_data[:500]}")
             root = ET.fromstring(xml_data)
             trades = []
 
