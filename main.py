@@ -195,7 +195,7 @@ async def adddrop_check_loop():
                     posted_adddrops.add(tx_id)
                     team_name = franchise_names.get(team, f"Team {team}")
                     player = player_names.get(player_id, f"Player #{player_id}")
-                    msg = f"🔄 **{action} Alert ({timestamp.strftime('%b %d, %Y %I:%M %p')}):** {team_name} {action.lower()}ed {player}"
+                    msg = f"🔄 **Add/Drop Alert ({timestamp.strftime('%b %d, %Y %I:%M %p')}):** {team_name} signed {player}"
                     await adddrop_channel.send(msg)
 
         await asyncio.sleep(CHECK_INTERVAL)
