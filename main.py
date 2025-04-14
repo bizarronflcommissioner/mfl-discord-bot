@@ -78,6 +78,7 @@ async def fetch_recent_trades():
                 return []
 
             xml_data = await resp.text()
+                print(f"📄 Raw Add/Drop XML snippet: {xml_data[:500]}")
             root = ET.fromstring(xml_data)
             trades = []
 
@@ -175,6 +176,9 @@ async def adddrop_check_loop():
         print("❌ ERROR: Add/Drop channel not found.")
         return
 
+    await load_franchises()
+    await load_players()
+
     while not client.is_closed():
         print("Checking add/drops...")
         url = f"https://www43.myfantasyleague.com/{SEASON_YEAR}/export?TYPE=transactions&L={LEAGUE_ID}&TRANS_TYPE=ADD,DROP"
@@ -189,6 +193,8 @@ async def adddrop_check_loop():
                 root = ET.fromstring(xml_data)
 
                 transactions_found = 0
+                txs = root.findall("transaction")
+                print(f"📦 Found {len(txs)} total add/drop transactions")
                 for tx in root.findall("transaction"):
                     tx_id = tx.get("timestamp")
                     action = tx.get("type", "").strip().upper()
