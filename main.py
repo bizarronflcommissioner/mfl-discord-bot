@@ -262,7 +262,7 @@ async def auction_check_loop():
 
                 transactions = root.findall("transaction")
                 for tx in transactions:
-                    if tx.get("type") != "WON_AUCTION":
+                    if tx.get("type") != "AUCTION_WON":
                         continue
 
                     tx_id = tx.get("timestamp")
