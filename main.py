@@ -199,7 +199,6 @@ async def adddrop_check_loop():
                     emoji = "🟢" if action_type == "acquired" else "🔴"
                     action_word = "signed" if action_type == "acquired" else "released"
                     msg = f"{emoji} **Add/Drop Alert ({timestamp.strftime('%b %d, %Y %I:%M %p')}):** {team_name} {action_word} {player}"
-
                     await adddrop_channel.send(msg)
 
         await asyncio.sleep(CHECK_INTERVAL)
@@ -238,11 +237,66 @@ async def rookie_post_check_loop():
 
         await asyncio.sleep(CHECK_INTERVAL)
 
+async def auction_check_loop():
+    await client.wait_until_ready()
+    auction_channel = client.get_channel(ADDDROP_CHANNEL_ID)
+    if auction_channel is None:
+        print("❌ ERROR: Auction channel not found.")
+        return
+
+    await load_franchises()
+    await load_players()
+
+    while not client.is_closed():
+        print("Checking won auctions...")
+        url = f"https://www43.myfantasyleague.com/{SEASON_YEAR}/export?TYPE=transactions&L={LEAGUE_ID}&TRANS_TYPE=ALL"
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url) as resp:
+                if resp.status != 200:
+                    print(f"Failed to fetch auctions: HTTP {resp.status}")
+                    await asyncio.sleep(CHECK_INTERVAL)
+                    continue
+
+                xml_data = await resp.text()
+                root = ET.fromstring(xml_data)
+
+                transactions = root.findall("transaction")
+                for tx in transactions:
+                    if tx.get("type") != "WON_AUCTION":
+                        continue
+
+                    tx_id = tx.get("timestamp")
+                    if tx_id in posted_adddrops:
+                        continue
+
+                    posted_adddrops.add(tx_id)
+                    try:
+                        timestamp = datetime.fromtimestamp(int(tx_id))
+                    except ValueError:
+                        print(f"⚠️ Invalid timestamp: {tx_id}")
+                        continue
+
+                    team = tx.get("franchise")
+                    player_id = tx.get("player")
+                    amount = tx.get("amount")
+
+                    if not team or not player_id or not amount:
+                        continue
+
+                    team_name = franchise_names.get(team, f"Team {team}")
+                    player = player_names.get(player_id, f"Player #{player_id}")
+                    msg = f"💵 **Auction Win ({timestamp.strftime('%b %d, %Y %I:%M %p')}):** {team_name} won {player} for ${amount}m"
+                    await auction_channel.send(msg)
+
+        await asyncio.sleep(CHECK_INTERVAL)
+
+
 @client.event
 async def on_ready():
     print(f"✅ Logged in as {client.user}")
     client.loop.create_task(trade_check_loop())
     client.loop.create_task(adddrop_check_loop())
     client.loop.create_task(rookie_post_check_loop())
+    client.loop.create_task(auction_check_loop())
 
 client.run(DISCORD_TOKEN)
