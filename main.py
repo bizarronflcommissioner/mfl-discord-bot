@@ -86,6 +86,7 @@ async def fetch_recent_trades():
 
                 trade_id = tx.get("timestamp")
                 timestamp = datetime.fromtimestamp(int(tx.get("timestamp")))
+                note = tx.get("comments", "").strip()
 
                 team1 = tx.get("franchise")
                 team2 = tx.get("franchise2")
@@ -104,42 +105,10 @@ async def fetch_recent_trades():
                     details.append(f"{team1_name} traded: {', '.join(team1_items)}")
                 if team2_items:
                     details.append(f"{team2_name} traded: {', '.join(team2_items)}")
+                if note:
+                    details.append(f"📝 Note: {note}")
 
                 if details:
                     trades.append((trade_id, timestamp, details))
                     print(f"Detected trade: {trade_id} on {timestamp}")
                     for d in details:
-                        print(f"  - {d}")
-
-            return trades
-
-async def trade_check_loop():
-    await client.wait_until_ready()
-    channel = client.get_channel(CHANNEL_ID)
-    print(f"Posting to channel: {channel}")
-
-    if channel is None:
-        print("❌ ERROR: Cannot find channel. Check .env and permissions.")
-        return
-
-    await load_franchises()
-    await load_players()
-
-    while not client.is_closed():
-        print("Checking for trades...")
-        trades = await fetch_recent_trades()
-
-        for trade_id, timestamp, details in trades:
-            if trade_id not in posted_trades:
-                posted_trades.add(trade_id)
-                trade_msg = f"📦 **Trade Alert ({timestamp.strftime('%b %d, %Y')}):**\n" + "\n".join(details)
-                await channel.send(trade_msg)
-
-        await asyncio.sleep(CHECK_INTERVAL)
-
-@client.event
-async def on_ready():
-    print(f"✅ Logged in as {client.user}")
-    client.loop.create_task(trade_check_loop())
-
-client.run(DISCORD_TOKEN)
