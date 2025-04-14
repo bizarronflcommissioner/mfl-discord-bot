@@ -168,7 +168,13 @@ async def adddrop_check_loop():
 
                     tx_id = tx.get("timestamp")
                     action = "FREE_AGENT"
-                    player_id = tx.get("player")
+                    raw_transaction = tx.get("transaction", "")
+                    player_id = None
+                    parts = raw_transaction.replace('|', ',').split(',')
+                    for part in parts:
+                        if part.strip().isdigit():
+                            player_id = part.strip()
+                            break
                     team = tx.get("franchise")
 
                     print(f"🕵️ TX: type={action}, player_id={player_id}, team={team}, ts={tx_id}")
