@@ -17,7 +17,7 @@ ROOKIE_CHANNEL_ID = 1359911725327056922
 ADDDROP_CHANNEL_ID = 1359911726899921159
 LEAGUE_ID = os.getenv("LEAGUE_ID")
 SEASON_YEAR = 2025
-CHECK_INTERVAL = 60
+CHECK_INTERVAL = 300
 
 intents = discord.Intents.default()
 client = discord.Client(intents=intents)
@@ -114,6 +114,7 @@ async def fetch_recent_trades():
             return trades
 
 async def trade_check_loop():
+    await asyncio.sleep(5)
     await client.wait_until_ready()
     trade_channel = client.get_channel(TRADE_CHANNEL_ID)
     if trade_channel is None:
@@ -136,6 +137,7 @@ async def trade_check_loop():
         await asyncio.sleep(CHECK_INTERVAL)
 
 async def adddrop_check_loop():
+    await asyncio.sleep(10)
     await client.wait_until_ready()
     adddrop_channel = client.get_channel(ADDDROP_CHANNEL_ID)
     if adddrop_channel is None:
@@ -156,6 +158,7 @@ async def adddrop_check_loop():
                     
 
 async def rookie_post_check_loop():
+    await asyncio.sleep(15)
     await client.wait_until_ready()
     rookie_channel = client.get_channel(ROOKIE_CHANNEL_ID)
     if rookie_channel is None:
@@ -190,6 +193,7 @@ async def rookie_post_check_loop():
         await asyncio.sleep(CHECK_INTERVAL)
 
 async def auction_check_loop():
+    await asyncio.sleep(20)
     await client.wait_until_ready()
     auction_channel = client.get_channel(ADDDROP_CHANNEL_ID)
     if auction_channel is None:
