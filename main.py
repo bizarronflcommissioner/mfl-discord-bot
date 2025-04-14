@@ -13,7 +13,8 @@ DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 print(f"TOKEN: {DISCORD_TOKEN}")
 
 CHANNEL_ID = int(os.getenv("CHANNEL_ID"))
-ROOKIE_CHANNEL_ID = 1359911725327056922  # Added rookie draft channel ID
+ROOKIE_CHANNEL_ID = 1359911725327056922  # Rookie draft channel ID
+ADDDROP_CHANNEL_ID = 1359911726899921159  # Add/Drop channel ID
 LEAGUE_ID = os.getenv("LEAGUE_ID")
 SEASON_YEAR = 2025
 CHECK_INTERVAL = 60
@@ -21,7 +22,8 @@ CHECK_INTERVAL = 60
 intents = discord.Intents.default()
 client = discord.Client(intents=intents)
 posted_trades = set()
-posted_rookies = set()  # Track posted rookie picks
+posted_rookies = set()
+posted_adddrops = set()
 
 franchise_names = {}
 player_names = {}
@@ -116,7 +118,6 @@ async def fetch_recent_trades():
 
             return trades
 
-# New: Fetch rookie draft picks and post them
 async def fetch_rookie_draft_picks():
     url = f"https://www43.myfantasyleague.com/{SEASON_YEAR}/export?TYPE=draftResults&L={LEAGUE_ID}&JSON=1"
     async with aiohttp.ClientSession() as session:
@@ -151,6 +152,43 @@ async def rookie_post_check_loop():
 
         await asyncio.sleep(CHECK_INTERVAL)
 
+async def adddrop_check_loop():
+    await client.wait_until_ready()
+    adddrop_channel = client.get_channel(ADDDROP_CHANNEL_ID)
+    if adddrop_channel is None:
+        print("❌ ERROR: Add/Drop channel not found.")
+        return
+
+    while not client.is_closed():
+        print("Checking add/drops...")
+        url = f"https://www43.myfantasyleague.com/{SEASON_YEAR}/export?TYPE=transactions&L={LEAGUE_ID}&TRANS_TYPE=ADD,DROP"
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url) as resp:
+                if resp.status != 200:
+                    print(f"Failed to fetch add/drops: HTTP {resp.status}")
+                    await asyncio.sleep(CHECK_INTERVAL)
+                    continue
+
+                xml_data = await resp.text()
+                root = ET.fromstring(xml_data)
+
+                for tx in root.findall("transaction"):
+                    tx_id = tx.get("timestamp")
+                    if tx_id in posted_adddrops:
+                        continue
+
+                    posted_adddrops.add(tx_id)
+                    timestamp = datetime.fromtimestamp(int(tx_id))
+                    team = tx.get("franchise")
+                    team_name = franchise_names.get(team, f"Team {team}")
+                    player_id = tx.get("player")
+                    action = tx.get("type")
+                    player = player_names.get(player_id, f"Player #{player_id}")
+                    msg = f"🔄 **{action} Alert ({timestamp.strftime('%b %d, %Y %I:%M %p')}):** {team_name} {action.lower()}ed {player}"
+                    await adddrop_channel.send(msg)
+
+        await asyncio.sleep(CHECK_INTERVAL)
+
 async def trade_check_loop():
     await client.wait_until_ready()
     channel = client.get_channel(CHANNEL_ID)
@@ -177,6 +215,7 @@ async def trade_check_loop():
 async def on_ready():
     print(f"✅ Logged in as {client.user}")
     client.loop.create_task(trade_check_loop())
-    client.loop.create_task(rookie_post_check_loop())  # Added rookie loop
+    client.loop.create_task(rookie_post_check_loop())
+    client.loop.create_task(adddrop_check_loop())
 
 client.run(DISCORD_TOKEN)
