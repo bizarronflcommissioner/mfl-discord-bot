@@ -147,7 +147,7 @@ async def adddrop_check_loop():
 
     while not client.is_closed():
         print("Checking add/drops...")
-        url = f"https://www43.myfantasyleague.com/{SEASON_YEAR}/export?TYPE=transactions&L={LEAGUE_ID}&TRANS_TYPE=ADD,DROP"
+        url = f"https://www43.myfantasyleague.com/{SEASON_YEAR}/export?TYPE=transactions&L={LEAGUE_ID}&TRANS_TYPE=ALL"
         async with aiohttp.ClientSession() as session:
             async with session.get(url) as resp:
                 if resp.status != 200:
@@ -163,6 +163,9 @@ async def adddrop_check_loop():
                 print(f"📦 Found {len(transactions)} total add/drop transactions")
 
                 for tx in transactions:
+                    if tx.get("type") not in ["ADD", "DROP"]:
+                        continue
+
                     tx_id = tx.get("timestamp")
                     action = tx.get("type", "").strip().upper()
                     player_id = tx.get("player")
