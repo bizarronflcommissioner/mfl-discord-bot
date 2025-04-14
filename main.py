@@ -250,7 +250,7 @@ async def auction_check_loop():
                     msg = f"💵 **Auction Win ({timestamp.strftime('%b %d, %Y %I:%M %p')}):** {team_name} won {player} for ${bid_millions:.1f}m"
                     await auction_channel.send(msg)
 
-        await asyncio.sleep(CHECK_INTERVAL)
+                    await asyncio.sleep(CHECK_INTERVAL)
                     continue
 
                 xml_data = await resp.text()
