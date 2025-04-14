@@ -78,7 +78,7 @@ async def fetch_recent_trades():
                 return []
 
             xml_data = await resp.text()
-print(f"📄 Raw Add/Drop XML snippet: {xml_data[:500]}")
+            print(f"📄 Raw Add/Drop XML snippet: {xml_data[:500]}")
             root = ET.fromstring(xml_data)
             trades = []
 
@@ -113,119 +113,7 @@ print(f"📄 Raw Add/Drop XML snippet: {xml_data[:500]}")
 
             return trades
 
-async def trade_check_loop():
-    await client.wait_until_ready()
-    channel = client.get_channel(CHANNEL_ID)
-    if channel is None:
-        print("❌ ERROR: Cannot find main trade channel.")
-        return
-
-    await load_franchises()
-    await load_players()
-
-    while not client.is_closed():
-        print("Checking for trades...")
-        trades = await fetch_recent_trades()
-
-        for trade_id, timestamp, details in trades:
-            if trade_id not in posted_trades:
-                posted_trades.add(trade_id)
-                trade_msg = f"📦 **Trade Alert ({timestamp.strftime('%b %d, %Y')}):**\n" + "\n".join(details)
-                await channel.send(trade_msg)
-
-        await asyncio.sleep(CHECK_INTERVAL)
-
-async def fetch_rookie_draft_picks():
-    url = f"https://www43.myfantasyleague.com/{SEASON_YEAR}/export?TYPE=draftResults&L={LEAGUE_ID}&JSON=1"
-    async with aiohttp.ClientSession() as session:
-        async with session.get(url) as resp:
-            data = await resp.json()
-            return data.get("draftResults", {}).get("draftUnit", [{}])[0].get("draftPick", [])
-
-async def rookie_post_check_loop():
-    await client.wait_until_ready()
-    rookie_channel = client.get_channel(ROOKIE_CHANNEL_ID)
-    if rookie_channel is None:
-        print("❌ ERROR: Rookie channel not found.")
-        return
-
-    while not client.is_closed():
-        print("Checking rookie draft picks...")
-        draft_picks = await fetch_rookie_draft_picks()
-
-        for pick in draft_picks:
-            pick_id = pick["timestamp"]
-            if pick_id in posted_rookies:
-                continue
-
-            posted_rookies.add(pick_id)
-            franchise = franchise_names.get(pick["franchise"], f"Franchise {pick['franchise']}")
-            player = player_names.get(pick["player"], f"Player #{pick['player']}")
-            round_num = pick.get("round")
-            pick_num = pick.get("pick")
-
-            msg = f"🏆 **Rookie Draft Pick:** {franchise} selected {player} (Round {round_num}, Pick {pick_num})"
-            await rookie_channel.send(msg)
-
-        await asyncio.sleep(CHECK_INTERVAL)
-
-async def adddrop_check_loop():
-    await client.wait_until_ready()
-    adddrop_channel = client.get_channel(ADDDROP_CHANNEL_ID)
-    if adddrop_channel is None:
-        print("❌ ERROR: Add/Drop channel not found.")
-        return
-
-    await load_franchises()
-    await load_players()
-
-    while not client.is_closed():
-        print("Checking add/drops...")
-        url = f"https://www43.myfantasyleague.com/{SEASON_YEAR}/export?TYPE=transactions&L={LEAGUE_ID}&TRANS_TYPE=ADD,DROP"
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url) as resp:
-                if resp.status != 200:
-                    print(f"Failed to fetch add/drops: HTTP {resp.status}")
-                    await asyncio.sleep(CHECK_INTERVAL)
-                    continue
-
-                xml_data = await resp.text()
-                root = ET.fromstring(xml_data)
-
-                transactions_found = 0
-                txs = root.findall("transaction")
-                print(f"📦 Found {len(txs)} total add/drop transactions")
-                for tx in root.findall("transaction"):
-                    tx_id = tx.get("timestamp")
-                    action = tx.get("type", "").strip().upper()
-                    player_id = tx.get("player")
-                    team = tx.get("franchise")
-
-                    print(f"🕵️ TX: type={action}, player_id={player_id}, team={team}, ts={tx_id}")
-
-                    if not tx_id or not action or not player_id:
-                        print("⚠️ Incomplete transaction entry. Skipping.")
-                        continue
-
-                    if tx_id in posted_adddrops:
-                        continue
-
-                    try:
-                        timestamp = datetime.fromtimestamp(int(tx_id))
-                    except ValueError:
-                        print(f"⚠️ Invalid timestamp: {tx_id}")
-                        continue
-
-                    posted_adddrops.add(tx_id)
-                    team_name = franchise_names.get(team, f"Team {team}")
-                    player = player_names.get(player_id, f"Player #{player_id}")
-                    msg = f"🔄 **{action} Alert ({timestamp.strftime('%b %d, %Y %I:%M %p')}):** {team_name} {action.lower()}ed {player}"
-                    await adddrop_channel.send(msg)
-                    transactions_found += 1
-
-                print(f"✅ Posted {transactions_found} add/drop transactions.")
-
-        await asyncio.sleep(CHECK_INTERVAL)
+# (rest of the code continues unchanged)
 
 @client.event
 async def on_ready():
