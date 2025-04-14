@@ -255,6 +255,50 @@ async def auction_check_loop():
 
                 xml_data = await resp.text()
                 root = ET.fromstring(xml_data)
+                transactions = root.findall("transaction")
+
+                for tx in transactions:
+                    print(f"🛒 Auction TX Raw: {tx.attrib}")
+                    if tx.get("type") != "AUCTION_WON":
+                        continue
+
+                    tx_id = tx.get("timestamp")
+                    if tx_id in posted_adddrops:
+                        continue
+
+                    posted_adddrops.add(tx_id)
+                    try:
+                        timestamp = datetime.fromtimestamp(int(tx_id))
+                    except ValueError:
+                        print(f"⚠️ Invalid timestamp: {tx_id}")
+                        continue
+
+                    team = tx.get("franchise")
+                    raw_tx = tx.get("transaction", "")
+                    parts = raw_tx.split("|")
+                    if len(parts) < 2:
+                        print(f"⚠️ Incomplete auction transaction: {raw_tx}")
+                        continue
+
+                    player_id = parts[0]
+                    bid_amount = parts[1]
+
+                    team_name = franchise_names.get(team, f"Team {team}")
+                    player = player_names.get(player_id, f"Player #{player_id}")
+                    try:
+                        bid_millions = float(bid_amount) / 1_000_000
+                    except ValueError:
+                        print(f"⚠️ Invalid bid amount: {bid_amount}")
+                        continue
+
+                    msg = f"💵 **Auction Win ({timestamp.strftime('%b %d, %Y %I:%M %p')}):** {team_name} won {player} for ${bid_millions:.1f}m"
+                    await auction_channel.send(msg)
+
+        await asyncio.sleep(CHECK_INTERVAL)
+                    continue
+
+                xml_data = await resp.text()
+                root = ET.fromstring(xml_data)
 
                 transactions = root.findall("transaction")
                 for tx in transactions:
