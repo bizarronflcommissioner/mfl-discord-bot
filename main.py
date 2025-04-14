@@ -163,11 +163,11 @@ async def adddrop_check_loop():
                 print(f"📦 Found {len(transactions)} total add/drop transactions")
 
                 for tx in transactions:
-                    if tx.get("type") not in ["ADD", "DROP"]:
+                    if tx.get("type") != "FREE_AGENT":
                         continue
 
                     tx_id = tx.get("timestamp")
-                    action = tx.get("type", "").strip().upper()
+                    action = "FREE_AGENT"
                     player_id = tx.get("player")
                     team = tx.get("franchise")
 
