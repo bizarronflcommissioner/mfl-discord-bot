@@ -196,9 +196,9 @@ async def adddrop_check_loop():
                     team_name = franchise_names.get(team, f"Team {team}")
                     player = player_names.get(player_id, f"Player #{player_id}")
                     action_type = "acquired" if not raw_transaction.startswith("|") else "dropped"
-emoji = "🟢" if action_type == "acquired" else "🔴"
-action_word = "signed" if action_type == "acquired" else "released"
-msg = f"{emoji} **Add/Drop Alert ({timestamp.strftime('%b %d, %Y %I:%M %p')}):** {team_name} {action_word} {player}"
+                    emoji = "🟢" if action_type == "acquired" else "🔴"
+                    action_word = "signed" if action_type == "acquired" else "released"
+                    msg = f"{emoji} **Add/Drop Alert ({timestamp.strftime('%b %d, %Y %I:%M %p')}):** {team_name} {action_word} {player}"
 
                     await adddrop_channel.send(msg)
 
