@@ -13,6 +13,7 @@ DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 print(f"TOKEN: {DISCORD_TOKEN}")
 
 CHANNEL_ID = int(os.getenv("CHANNEL_ID"))
+ROOKIE_CHANNEL_ID = 1359911725327056922  # Added rookie draft channel ID
 LEAGUE_ID = os.getenv("LEAGUE_ID")
 SEASON_YEAR = 2025
 CHECK_INTERVAL = 60
@@ -20,6 +21,7 @@ CHECK_INTERVAL = 60
 intents = discord.Intents.default()
 client = discord.Client(intents=intents)
 posted_trades = set()
+posted_rookies = set()  # Track posted rookie picks
 
 franchise_names = {}
 player_names = {}
@@ -74,9 +76,6 @@ async def fetch_recent_trades():
                 return []
 
             xml_data = await resp.text()
-            print("Fetched trade XML from MFL:")
-            print(xml_data[:500])
-
             root = ET.fromstring(xml_data)
             trades = []
 
@@ -114,19 +113,49 @@ async def fetch_recent_trades():
 
                 if details:
                     trades.append((trade_id, timestamp, details))
-                    print(f"Detected trade: {trade_id} on {timestamp}")
-                    for d in details:
-                        print(f"  - {d}")
 
             return trades
+
+# New: Fetch rookie draft picks and post them
+async def fetch_rookie_draft_picks():
+    url = f"https://www43.myfantasyleague.com/{SEASON_YEAR}/export?TYPE=draftResults&L={LEAGUE_ID}&JSON=1"
+    async with aiohttp.ClientSession() as session:
+        async with session.get(url) as resp:
+            data = await resp.json()
+            return data.get("draftResults", {}).get("draftUnit", [{}])[0].get("draftPick", [])
+
+async def rookie_post_check_loop():
+    await client.wait_until_ready()
+    rookie_channel = client.get_channel(ROOKIE_CHANNEL_ID)
+    if rookie_channel is None:
+        print("❌ ERROR: Rookie channel not found.")
+        return
+
+    while not client.is_closed():
+        print("Checking rookie draft picks...")
+        draft_picks = await fetch_rookie_draft_picks()
+
+        for pick in draft_picks:
+            pick_id = pick["timestamp"]
+            if pick_id in posted_rookies:
+                continue
+
+            posted_rookies.add(pick_id)
+            franchise = franchise_names.get(pick["franchise"], f"Franchise {pick['franchise']}")
+            player = player_names.get(pick["player"], f"Player #{pick['player']}")
+            round_num = pick.get("round")
+            pick_num = pick.get("pick")
+
+            msg = f"🏆 **Rookie Draft Pick:** {franchise} selected {player} (Round {round_num}, Pick {pick_num})"
+            await rookie_channel.send(msg)
+
+        await asyncio.sleep(CHECK_INTERVAL)
 
 async def trade_check_loop():
     await client.wait_until_ready()
     channel = client.get_channel(CHANNEL_ID)
-    print(f"Posting to channel: {channel}")
-
     if channel is None:
-        print("❌ ERROR: Cannot find channel. Check .env and permissions.")
+        print("❌ ERROR: Cannot find main trade channel.")
         return
 
     await load_franchises()
@@ -148,5 +177,6 @@ async def trade_check_loop():
 async def on_ready():
     print(f"✅ Logged in as {client.user}")
     client.loop.create_task(trade_check_loop())
+    client.loop.create_task(rookie_post_check_loop())  # Added rookie loop
 
 client.run(DISCORD_TOKEN)
