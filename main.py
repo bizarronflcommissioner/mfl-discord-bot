@@ -30,7 +30,7 @@ def format_item(item):
     if dp_match:
         rnd, pick = dp_match.groups()
         try:
-            rnd_int = int(rnd)
+            rnd_int = int(rnd) + 1
             if rnd_int == 0:
                 rnd_int = 1
             return f"{SEASON_YEAR} {ordinal(rnd_int)} Round Pick (Pick {pick})"
@@ -41,7 +41,7 @@ def format_item(item):
     if fp_match:
         team, year, rnd = fp_match.groups()
         try:
-            rnd_int = int(rnd)
+            rnd_int = int(rnd) + 1
             team_name = franchise_names.get(team, f"Team {team}")
             return f"{year} {ordinal(rnd_int)} Round Pick (from {team_name})"
         except:
