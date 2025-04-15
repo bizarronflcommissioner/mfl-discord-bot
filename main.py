@@ -32,17 +32,20 @@ def ordinal(n):
     return {1: "1st", 2: "2nd", 3: "3rd"}.get(n, f"{n}th")
 
 def format_item(item):
+    # Current year pick like DP_2_22
     dp_match = re.match(r"DP_(\d+)_(\d+)", item)
     if dp_match:
         rnd, pick = dp_match.groups()
-        return f"{SEASON_YEAR} {ordinal(int(rnd))} Round Pick (#{pick})"
+        return f"Year {SEASON_YEAR} Draft Pick {rnd}.{pick}"
 
+    # Future pick like FP_0010_2026_2
     fp_match = re.match(r"FP_(\d{4})_(\d{4})_(\d+)", item)
     if fp_match:
         team_id, year, rnd = fp_match.groups()
         team_name = franchise_names.get(team_id, f"Team {team_id}")
-        return f"{year} {ordinal(int(rnd))} Round Pick (from {team_name})"
+        return f"Year {year} {ordinal(int(rnd))} Round Pick (from {team_name})"
 
+    # Player ID
     if item.isdigit():
         return player_names.get(item, f"Player #{item}")
 
@@ -152,7 +155,6 @@ async def adddrop_check_loop():
         async with aiohttp.ClientSession() as session:
             async with session.get(url) as resp:
                 if resp.status != 200:
-                    print(f"Failed to fetch add/drops: HTTP {resp.status}")
                     await asyncio.sleep(CHECK_INTERVAL)
                     continue
 
