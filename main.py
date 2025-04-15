@@ -10,8 +10,6 @@ import re
 # Load environment variables
 load_dotenv()
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
-print(f"TOKEN: {DISCORD_TOKEN}")
-
 CHANNEL_ID = int(os.getenv("CHANNEL_ID"))
 LEAGUE_ID = os.getenv("LEAGUE_ID")
 SEASON_YEAR = 2025
@@ -31,13 +29,23 @@ def format_item(item):
     dp_match = re.match(r"DP_(\d+)_(\d+)", item)
     if dp_match:
         rnd, pick = dp_match.groups()
-        return f"Year {SEASON_YEAR} Draft Pick {rnd}.{pick}"
+        try:
+            rnd_int = int(rnd)
+            if rnd_int == 0:
+                rnd_int = 1
+            return f"{SEASON_YEAR} {ordinal(rnd_int)} Round Pick (Pick {pick})"
+        except:
+            return f"{SEASON_YEAR} Draft Pick Round {rnd}, Pick {pick}"
 
     fp_match = re.match(r"FP_(\d{4})_(\d{4})_(\d+)", item)
     if fp_match:
         team, year, rnd = fp_match.groups()
-        team_name = franchise_names.get(team, f"Team {team}")
-        return f"Year {year} {ordinal(int(rnd))} Round Pick (from {team_name})"
+        try:
+            rnd_int = int(rnd)
+            team_name = franchise_names.get(team, f"Team {team}")
+            return f"{year} {ordinal(rnd_int)} Round Pick (from {team_name})"
+        except:
+            return f"{year} Draft Pick Round {rnd} (from {team_name})"
 
     if item.isdigit():
         return player_names.get(item, f"Player #{item}")
@@ -110,7 +118,7 @@ async def fetch_all_transactions():
                     if player_id:
                         action = "signed" if not raw_tx.startswith("|") else "released"
                         player = player_names.get(player_id, f"Player #{player_id}")
-                        transactions.append(f"Add/Drop Alert ({timestamp}): {team_name} {action} {player}")
+                        transactions.append(f"**Add/Drop Alert ({timestamp})**: {team_name} {action} {player}")
 
                 elif tx_type == "AUCTION_WON":
                     parts = raw_tx.split("|")
@@ -121,7 +129,7 @@ async def fetch_all_transactions():
                         except:
                             bid_amt = bid
                         player = player_names.get(player_id, f"Player #{player_id}")
-                        transactions.append(f"Auction Win ({timestamp}): {team_name} won {player} for ${bid_amt}m")
+                        transactions.append(f"**Auction Win ({timestamp})**: {team_name} won {player} for ${bid_amt}m")
 
                 elif tx_type == "TAXI":
                     promoted = tx.get("promoted", "").strip(",")
@@ -133,7 +141,7 @@ async def fetch_all_transactions():
                         move.append(f"promoted: {promo}")
                     if demo:
                         move.append(f"demoted: {demo}")
-                    transactions.append(f"Taxi Move ({timestamp}): {team_name} " + " | ".join(move))
+                    transactions.append(f"**Taxi Move ({timestamp})**: {team_name} " + " | ".join(move))
 
             return transactions
 
