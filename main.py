@@ -32,15 +32,15 @@ def ordinal(n):
     return {1: "1st", 2: "2nd", 3: "3rd"}.get(n, f"{n}th")
 
 def format_item(item):
-    dp_match = re.match(r"DP_(\\d)_(\\d+)", item)
+    dp_match = re.match(r"DP_(\d+)_(\d+)", item)
     if dp_match:
         rnd, pick = dp_match.groups()
         return f"{SEASON_YEAR} {ordinal(int(rnd))} Round Pick (#{pick})"
 
-    fp_match = re.match(r"FP_(\\d{4})_(\\d{4})_(\\d)", item)
+    fp_match = re.match(r"FP_(\d{4})_(\d{4})_(\d+)", item)
     if fp_match:
-        team, year, rnd = fp_match.groups()
-        team_name = franchise_names.get(team, f"Team {team}")
+        team_id, year, rnd = fp_match.groups()
+        team_name = franchise_names.get(team_id, f"Team {team_id}")
         return f"{year} {ordinal(int(rnd))} Round Pick (from {team_name})"
 
     if item.isdigit():
@@ -78,7 +78,6 @@ async def fetch_recent_trades():
                 return []
 
             xml_data = await resp.text()
-            print(f"📄 Raw Trade XML snippet: {xml_data[:500]}")
             root = ET.fromstring(xml_data)
             trades = []
 
@@ -87,7 +86,7 @@ async def fetch_recent_trades():
                     continue
 
                 trade_id = tx.get("timestamp")
-                timestamp = datetime.fromtimestamp(int(tx.get("timestamp")))
+                timestamp = datetime.fromtimestamp(int(trade_id))
                 team1 = tx.get("franchise")
                 team2 = tx.get("franchise2")
                 team1_items = tx.get("franchise1_gave_up", "").strip(",").split(",")
@@ -132,7 +131,7 @@ async def trade_check_loop():
             if trade_id not in posted_trades:
                 posted_trades.add(trade_id)
                 trade_msg = f"📦 **Trade Alert ({timestamp.strftime('%b %d, %Y')}):**\n" + "\n".join(details)
-                await trade_channel.send(trade_msg)
+                await trade_channel.send(trade_msg + "\n────────────")
 
         await asyncio.sleep(CHECK_INTERVAL)
 
@@ -160,10 +159,7 @@ async def adddrop_check_loop():
                 xml_data = await resp.text()
                 root = ET.fromstring(xml_data)
 
-                transactions = root.findall("transaction")
-                print(f"📦 Found {len(transactions)} total add/drop transactions")
-
-                for tx in transactions:
+                for tx in root.findall("transaction"):
                     if tx.get("type") != "FREE_AGENT":
                         continue
 
@@ -177,19 +173,12 @@ async def adddrop_check_loop():
                             break
                     team = tx.get("franchise")
 
-                    print(f"🕵️ TX: type=FREE_AGENT, player_id={player_id}, team={team}, ts={tx_id}")
-
-                    if not tx_id or not player_id:
-                        print("⚠️ Incomplete transaction entry. Skipping.")
-                        continue
-
-                    if tx_id in posted_adddrops:
+                    if not tx_id or not player_id or tx_id in posted_adddrops:
                         continue
 
                     try:
                         timestamp = datetime.fromtimestamp(int(tx_id))
                     except ValueError:
-                        print(f"⚠️ Invalid timestamp: {tx_id}")
                         continue
 
                     posted_adddrops.add(tx_id)
@@ -199,10 +188,9 @@ async def adddrop_check_loop():
                     emoji = "🟢" if action_type == "acquired" else "🔴"
                     action_word = "signed" if action_type == "acquired" else "released"
                     msg = f"{emoji} **Add/Drop Alert ({timestamp.strftime('%b %d, %Y %I:%M %p')}):** {team_name} {action_word} {player}"
-                    await adddrop_channel.send(msg)
+                    await adddrop_channel.send(msg + "\n────────────")
 
         await asyncio.sleep(CHECK_INTERVAL)
-                    
 
 async def rookie_post_check_loop():
     await asyncio.sleep(15)
@@ -221,21 +209,24 @@ async def rookie_post_check_loop():
         async with aiohttp.ClientSession() as session:
             async with session.get(url) as resp:
                 data = await resp.json()
-                picks = data.get("draftResults", {}).get("draftUnit", [{}])[0].get("draftPick", [])
+                draft_unit = data.get("draftResults", {}).get("draftUnit", [])
+                if isinstance(draft_unit, dict):
+                    draft_unit = [draft_unit]
 
-                for pick in picks:
-                    pick_id = pick["timestamp"]
-                    if pick_id in posted_rookies:
-                        continue
+                for unit in draft_unit:
+                    for pick in unit.get("draftPick", []):
+                        pick_id = pick["timestamp"]
+                        if pick_id in posted_rookies:
+                            continue
 
-                    posted_rookies.add(pick_id)
-                    franchise = franchise_names.get(pick["franchise"], f"Franchise {pick['franchise']}")
-                    player = player_names.get(pick["player"], f"Player #{pick['player']}")
-                    round_num = pick.get("round")
-                    pick_num = pick.get("pick")
+                        posted_rookies.add(pick_id)
+                        franchise = franchise_names.get(pick["franchise"], f"Franchise {pick['franchise']}")
+                        player = player_names.get(pick["player"], f"Player #{pick['player']}")
+                        round_num = pick.get("round")
+                        pick_num = pick.get("pick")
 
-                    msg = f"🏆 **Rookie Draft Pick:** {franchise} selected {player} (Round {round_num}, Pick {pick_num})"
-                    await rookie_channel.send(msg)
+                        msg = f"🏆 **Rookie Draft Pick:** {franchise} selected {player} (Round {round_num}, Pick {pick_num})"
+                        await rookie_channel.send(msg + "\n────────────")
 
         await asyncio.sleep(CHECK_INTERVAL)
 
@@ -256,16 +247,13 @@ async def auction_check_loop():
         async with aiohttp.ClientSession() as session:
             async with session.get(url) as resp:
                 if resp.status != 200:
-                    print(f"Failed to fetch auctions: HTTP {resp.status}")
                     await asyncio.sleep(CHECK_INTERVAL)
                     continue
 
                 xml_data = await resp.text()
                 root = ET.fromstring(xml_data)
-                transactions = root.findall("transaction")
 
-                for tx in transactions:
-                    print(f"🛒 Auction TX Raw: {tx.attrib}")
+                for tx in root.findall("transaction"):
                     if tx.get("type") != "AUCTION_WON":
                         continue
 
@@ -277,14 +265,12 @@ async def auction_check_loop():
                     try:
                         timestamp = datetime.fromtimestamp(int(tx_id))
                     except ValueError:
-                        print(f"⚠️ Invalid timestamp: {tx_id}")
                         continue
 
                     team = tx.get("franchise")
                     raw_tx = tx.get("transaction", "")
                     parts = raw_tx.split("|")
                     if len(parts) < 2:
-                        print(f"⚠️ Incomplete auction transaction: {raw_tx}")
                         continue
 
                     player_id = parts[0]
@@ -295,14 +281,12 @@ async def auction_check_loop():
                     try:
                         bid_millions = float(bid_amount) / 1_000_000
                     except ValueError:
-                        print(f"⚠️ Invalid bid amount: {bid_amount}")
                         continue
 
                     msg = f"💵 **Auction Win ({timestamp.strftime('%b %d, %Y %I:%M %p')}):** {team_name} won {player} for ${bid_millions:.1f}m"
-                    await auction_channel.send(msg)
+                    await auction_channel.send(msg + "\n────────────")
 
         await asyncio.sleep(CHECK_INTERVAL)
-
 
 @client.event
 async def on_ready():
