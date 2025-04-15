@@ -32,12 +32,12 @@ def ordinal(n):
     return {1: "1st", 2: "2nd", 3: "3rd"}.get(n, f"{n}th")
 
 def format_item(item):
-    dp_match = re.match(r"DP_(\d)_(\d+)", item)
+    dp_match = re.match(r"DP_(\\d)_(\\d+)", item)
     if dp_match:
         rnd, pick = dp_match.groups()
-        return f"2025 {ordinal(int(rnd))} Round Pick (Pick {pick})"
+        return f"{SEASON_YEAR} {ordinal(int(rnd))} Round Pick (#{pick})"
 
-    fp_match = re.match(r"FP_(\d{4})_(\d{4})_(\d)", item)
+    fp_match = re.match(r"FP_(\\d{4})_(\\d{4})_(\\d)", item)
     if fp_match:
         team, year, rnd = fp_match.groups()
         team_name = franchise_names.get(team, f"Team {team}")
