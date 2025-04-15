@@ -12,6 +12,7 @@ load_dotenv()
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 print(f"TOKEN: {DISCORD_TOKEN}")
 
+# All updates go to the League News channel
 TRADE_CHANNEL_ID = 1361699541006422315
 ROOKIE_CHANNEL_ID = 1361699541006422315
 ADDDROP_CHANNEL_ID = 1361699541006422315
@@ -32,13 +33,13 @@ def ordinal(n):
     return {1: "1st", 2: "2nd", 3: "3rd"}.get(n, f"{n}th")
 
 def format_item(item):
-    # Current year pick like DP_2_22
+    # Current-year pick (DP_2_22)
     dp_match = re.match(r"DP_(\d+)_(\d+)", item)
     if dp_match:
         rnd, pick = dp_match.groups()
         return f"Year {SEASON_YEAR} Draft Pick {rnd}.{pick}"
 
-    # Future pick like FP_0010_2026_2
+    # Future pick (FP_0010_2026_2)
     fp_match = re.match(r"FP_(\d{4})_(\d{4})_(\d+)", item)
     if fp_match:
         team_id, year, rnd = fp_match.groups()
