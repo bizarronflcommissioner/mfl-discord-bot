@@ -10,12 +10,8 @@ import re
 # Load environment variables
 load_dotenv()
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
-print(f"TOKEN: {DISCORD_TOKEN}")
 
-# All updates go to the League News channel
-TRADE_CHANNEL_ID = 1361699541006422315
-ROOKIE_CHANNEL_ID = 1361699541006422315
-ADDDROP_CHANNEL_ID = 1361699541006422315
+CHANNEL_ID = 1361699541006422315
 LEAGUE_ID = os.getenv("LEAGUE_ID")
 SEASON_YEAR = 2025
 CHECK_INTERVAL = 300
@@ -24,7 +20,6 @@ intents = discord.Intents.default()
 client = discord.Client(intents=intents)
 posted_trades = set()
 posted_rookies = set()
-posted_adddrops = set()
 
 franchise_names = {}
 player_names = {}
@@ -33,20 +28,17 @@ def ordinal(n):
     return {1: "1st", 2: "2nd", 3: "3rd"}.get(n, f"{n}th")
 
 def format_item(item):
-    # Current-year pick (DP_2_22)
     dp_match = re.match(r"DP_(\d+)_(\d+)", item)
     if dp_match:
         rnd, pick = dp_match.groups()
         return f"Year {SEASON_YEAR} Draft Pick {rnd}.{pick}"
 
-    # Future pick (FP_0010_2026_2)
     fp_match = re.match(r"FP_(\d{4})_(\d{4})_(\d+)", item)
     if fp_match:
         team_id, year, rnd = fp_match.groups()
         team_name = franchise_names.get(team_id, f"Team {team_id}")
         return f"Year {year} {ordinal(int(rnd))} Round Pick (from {team_name})"
 
-    # Player ID
     if item.isdigit():
         return player_names.get(item, f"Player #{item}")
 
@@ -108,9 +100,9 @@ async def fetch_recent_trades():
                 if team2_items:
                     details.append(f"{franchise_names.get(team2, team2)} traded: {', '.join(team2_items)}")
                 if note:
-                    details.append(f"📝 Note: {note}")
+                    details.append(f"Note: {note}")
                 if offer_message:
-                    details.append(f"📬 Optional Message to Include With Trade Offer Email:\n> {offer_message}")
+                    details.append(f"Optional Message to Include With Trade Offer Email:\n> {offer_message}")
 
                 trades.append((trade_id, timestamp, details))
 
@@ -119,9 +111,9 @@ async def fetch_recent_trades():
 async def trade_check_loop():
     await asyncio.sleep(5)
     await client.wait_until_ready()
-    trade_channel = client.get_channel(TRADE_CHANNEL_ID)
-    if trade_channel is None:
-        print("❌ ERROR: Trade channel not found.")
+    channel = client.get_channel(CHANNEL_ID)
+    if channel is None:
+        print("ERROR: Channel not found.")
         return
 
     await load_franchises()
@@ -134,73 +126,17 @@ async def trade_check_loop():
         for trade_id, timestamp, details in trades:
             if trade_id not in posted_trades:
                 posted_trades.add(trade_id)
-                trade_msg = f"📦 **Trade Alert ({timestamp.strftime('%b %d, %Y')}):**\n" + "\n".join(details)
-                await trade_channel.send(trade_msg + "\n────────────")
-
-        await asyncio.sleep(CHECK_INTERVAL)
-
-async def adddrop_check_loop():
-    await asyncio.sleep(10)
-    await client.wait_until_ready()
-    adddrop_channel = client.get_channel(ADDDROP_CHANNEL_ID)
-    if adddrop_channel is None:
-        print("❌ ERROR: Add/Drop channel not found.")
-        return
-
-    await load_franchises()
-    await load_players()
-
-    while not client.is_closed():
-        print("Checking add/drops...")
-        url = f"https://www43.myfantasyleague.com/{SEASON_YEAR}/export?TYPE=transactions&L={LEAGUE_ID}&TRANS_TYPE=ALL"
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url) as resp:
-                if resp.status != 200:
-                    await asyncio.sleep(CHECK_INTERVAL)
-                    continue
-
-                xml_data = await resp.text()
-                root = ET.fromstring(xml_data)
-
-                for tx in root.findall("transaction"):
-                    if tx.get("type") != "FREE_AGENT":
-                        continue
-
-                    tx_id = tx.get("timestamp")
-                    raw_transaction = tx.get("transaction", "")
-                    player_id = None
-                    parts = raw_transaction.replace('|', ',').split(',')
-                    for part in parts:
-                        if part.strip().isdigit():
-                            player_id = part.strip()
-                            break
-                    team = tx.get("franchise")
-
-                    if not tx_id or not player_id or tx_id in posted_adddrops:
-                        continue
-
-                    try:
-                        timestamp = datetime.fromtimestamp(int(tx_id))
-                    except ValueError:
-                        continue
-
-                    posted_adddrops.add(tx_id)
-                    team_name = franchise_names.get(team, f"Team {team}")
-                    player = player_names.get(player_id, f"Player #{player_id}")
-                    action_type = "acquired" if not raw_transaction.startswith("|") else "dropped"
-                    emoji = "🟢" if action_type == "acquired" else "🔴"
-                    action_word = "signed" if action_type == "acquired" else "released"
-                    msg = f"{emoji} **Add/Drop Alert ({timestamp.strftime('%b %d, %Y %I:%M %p')}):** {team_name} {action_word} {player}"
-                    await adddrop_channel.send(msg + "\n────────────")
+                trade_msg = f"Trade Alert ({timestamp.strftime('%b %d, %Y')}):\n" + "\n".join(details)
+                await channel.send(trade_msg + "\n" + "-" * 40)
 
         await asyncio.sleep(CHECK_INTERVAL)
 
 async def rookie_post_check_loop():
     await asyncio.sleep(15)
     await client.wait_until_ready()
-    rookie_channel = client.get_channel(ROOKIE_CHANNEL_ID)
-    if rookie_channel is None:
-        print("❌ ERROR: Rookie channel not found.")
+    channel = client.get_channel(CHANNEL_ID)
+    if channel is None:
+        print("ERROR: Channel not found.")
         return
 
     await load_franchises()
@@ -228,75 +164,15 @@ async def rookie_post_check_loop():
                         round_num = pick.get("round")
                         pick_num = pick.get("pick")
 
-                        msg = f"🏆 **Rookie Draft Pick:** {franchise} selected {player} (Round {round_num}, Pick {pick_num})"
-                        await rookie_channel.send(msg + "\n────────────")
-
-        await asyncio.sleep(CHECK_INTERVAL)
-
-async def auction_check_loop():
-    await asyncio.sleep(20)
-    await client.wait_until_ready()
-    auction_channel = client.get_channel(ADDDROP_CHANNEL_ID)
-    if auction_channel is None:
-        print("❌ ERROR: Auction channel not found.")
-        return
-
-    await load_franchises()
-    await load_players()
-
-    while not client.is_closed():
-        print("Checking won auctions...")
-        url = f"https://www43.myfantasyleague.com/{SEASON_YEAR}/export?TYPE=transactions&L={LEAGUE_ID}&TRANS_TYPE=ALL"
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url) as resp:
-                if resp.status != 200:
-                    await asyncio.sleep(CHECK_INTERVAL)
-                    continue
-
-                xml_data = await resp.text()
-                root = ET.fromstring(xml_data)
-
-                for tx in root.findall("transaction"):
-                    if tx.get("type") != "AUCTION_WON":
-                        continue
-
-                    tx_id = tx.get("timestamp")
-                    if tx_id in posted_adddrops:
-                        continue
-
-                    posted_adddrops.add(tx_id)
-                    try:
-                        timestamp = datetime.fromtimestamp(int(tx_id))
-                    except ValueError:
-                        continue
-
-                    team = tx.get("franchise")
-                    raw_tx = tx.get("transaction", "")
-                    parts = raw_tx.split("|")
-                    if len(parts) < 2:
-                        continue
-
-                    player_id = parts[0]
-                    bid_amount = parts[1]
-
-                    team_name = franchise_names.get(team, f"Team {team}")
-                    player = player_names.get(player_id, f"Player #{player_id}")
-                    try:
-                        bid_millions = float(bid_amount) / 1_000_000
-                    except ValueError:
-                        continue
-
-                    msg = f"💵 **Auction Win ({timestamp.strftime('%b %d, %Y %I:%M %p')}):** {team_name} won {player} for ${bid_millions:.1f}m"
-                    await auction_channel.send(msg + "\n────────────")
+                        msg = f"Rookie Draft Pick: {franchise} selected {player} (Round {round_num}, Pick {pick_num})"
+                        await channel.send(msg + "\n" + "-" * 40)
 
         await asyncio.sleep(CHECK_INTERVAL)
 
 @client.event
 async def on_ready():
-    print(f"✅ Logged in as {client.user}")
+    print(f"Logged in as {client.user}")
     client.loop.create_task(trade_check_loop())
-    client.loop.create_task(adddrop_check_loop())
     client.loop.create_task(rookie_post_check_loop())
-    client.loop.create_task(auction_check_loop())
 
 client.run(DISCORD_TOKEN)
