@@ -19,7 +19,7 @@ CHECK_INTERVAL = 60
 
 intents = discord.Intents.default()
 client = discord.Client(intents=intents)
-posted_trades = set()
+posted_transactions = set()
 
 franchise_names = {}
 player_names = {}
@@ -28,16 +28,16 @@ def ordinal(n):
     return {1: "1st", 2: "2nd", 3: "3rd"}.get(n, f"{n}th")
 
 def format_item(item):
-    dp_match = re.match(r"DP_(\d)_(\d+)", item)
+    dp_match = re.match(r"DP_(\d+)_(\d+)", item)
     if dp_match:
         rnd, pick = dp_match.groups()
-        return f"2025 {ordinal(int(rnd))} Round Pick (Pick {pick})"
+        return f"Year {SEASON_YEAR} Draft Pick {rnd}.{pick}"
 
-    fp_match = re.match(r"FP_(\d{4})_(\d{4})_(\d)", item)
+    fp_match = re.match(r"FP_(\d{4})_(\d{4})_(\d+)", item)
     if fp_match:
         team, year, rnd = fp_match.groups()
         team_name = franchise_names.get(team, f"Team {team}")
-        return f"{year} {ordinal(int(rnd))} Round Pick (from {team_name})"
+        return f"Year {year} {ordinal(int(rnd))} Round Pick (from {team_name})"
 
     if item.isdigit():
         return player_names.get(item, f"Player #{item}")
@@ -65,66 +65,81 @@ async def load_players():
                     player_names[pid] = name
     print(f"Loaded {len(player_names)} players.")
 
-async def fetch_recent_trades():
-    url = f"https://www43.myfantasyleague.com/{SEASON_YEAR}/export?TYPE=transactions&L={LEAGUE_ID}&TRANS_TYPE=TRADE"
+async def fetch_all_transactions():
+    url = f"https://www43.myfantasyleague.com/{SEASON_YEAR}/export?TYPE=transactions&L={LEAGUE_ID}&TRANS_TYPE=ALL"
     async with aiohttp.ClientSession() as session:
         async with session.get(url) as resp:
             if resp.status != 200:
-                print(f"Failed to fetch trades: HTTP {resp.status}")
+                print(f"Failed to fetch transactions: HTTP {resp.status}")
                 return []
 
             xml_data = await resp.text()
-            print("Fetched trade XML from MFL:")
-            print(xml_data[:500])
-
             root = ET.fromstring(xml_data)
-            trades = []
+            transactions = []
 
             for tx in root.findall("transaction"):
-                if tx.get("type") != "TRADE":
+                tx_id = tx.get("timestamp")
+                if tx_id in posted_transactions:
                     continue
 
-                trade_id = tx.get("timestamp")
-                timestamp = datetime.fromtimestamp(int(tx.get("timestamp")))
+                posted_transactions.add(tx_id)
+                timestamp = datetime.fromtimestamp(int(tx_id)).strftime('%b %d, %Y %I:%M %p')
+                tx_type = tx.get("type")
+                team = tx.get("franchise")
+                team_name = franchise_names.get(team, f"Team {team}")
+                raw_tx = tx.get("transaction", "")
 
-                note = tx.get("comments", "").strip()
-                offer_message = tx.get("message", "").strip()
+                if tx_type == "TRADE":
+                    team1 = tx.get("franchise")
+                    team2 = tx.get("franchise2")
+                    t1_items = [format_item(i) for i in tx.get("franchise1_gave_up", "").strip(",").split(",") if i]
+                    t2_items = [format_item(i) for i in tx.get("franchise2_gave_up", "").strip(",").split(",") if i]
+                    team1_line = f"{franchise_names.get(team1, team1)} traded: {', '.join(t1_items) if t1_items else '(nothing)'}"
+                    team2_line = f"{franchise_names.get(team2, team2)} traded: {', '.join(t2_items) if t2_items else '(nothing)'}"
+                    note = tx.get("comments", "").strip()
+                    offer_msg = tx.get("message", "").strip()
+                    lines = [f"**Trade Alert ({timestamp})**", team1_line, team2_line]
+                    if note:
+                        lines.append(f"Note: {note}")
+                    if offer_msg:
+                        lines.append(f"Optional Message: {offer_msg}")
+                    transactions.append("\n".join(lines))
 
-                team1 = tx.get("franchise")
-                team2 = tx.get("franchise2")
+                elif tx_type == "FREE_AGENT":
+                    player_id = next((p.strip() for p in raw_tx.replace("|", ",").split(",") if p.strip().isdigit()), None)
+                    if player_id:
+                        action = "signed" if not raw_tx.startswith("|") else "released"
+                        player = player_names.get(player_id, f"Player #{player_id}")
+                        transactions.append(f"Add/Drop Alert ({timestamp}): {team_name} {action} {player}")
 
-                team1_name = franchise_names.get(team1, f"Team {team1}")
-                team2_name = franchise_names.get(team2, f"Team {team2}")
+                elif tx_type == "AUCTION_WON":
+                    parts = raw_tx.split("|")
+                    if len(parts) >= 2:
+                        player_id, bid = parts[0], parts[1]
+                        try:
+                            bid_amt = float(bid) / 1_000_000
+                        except:
+                            bid_amt = bid
+                        player = player_names.get(player_id, f"Player #{player_id}")
+                        transactions.append(f"Auction Win ({timestamp}): {team_name} won {player} for ${bid_amt}m")
 
-                team1_items = tx.get("franchise1_gave_up", "").strip(",").split(",")
-                team2_items = tx.get("franchise2_gave_up", "").strip(",").split(",")
+                elif tx_type == "TAXI":
+                    promoted = tx.get("promoted", "").strip(",")
+                    demoted = tx.get("demoted", "").strip(",")
+                    promo = ", ".join(player_names.get(p, f"Player #{p}") for p in promoted.split(",") if p)
+                    demo = ", ".join(player_names.get(p, f"Player #{p}") for p in demoted.split(",") if p)
+                    move = []
+                    if promo:
+                        move.append(f"promoted: {promo}")
+                    if demo:
+                        move.append(f"demoted: {demo}")
+                    transactions.append(f"Taxi Move ({timestamp}): {team_name} " + " | ".join(move))
 
-                team1_items = [format_item(item) for item in team1_items if item]
-                team2_items = [format_item(item) for item in team2_items if item]
+            return transactions
 
-                details = []
-                if team1_items:
-                    details.append(f"{team1_name} traded: {', '.join(team1_items)}")
-                if team2_items:
-                    details.append(f"{team2_name} traded: {', '.join(team2_items)}")
-                if note:
-                    details.append(f"📝 Note: {note}")
-                if offer_message:
-                    details.append(f"📬 Optional Message to Include With Trade Offer Email:\n> {offer_message}")
-
-                if details:
-                    trades.append((trade_id, timestamp, details))
-                    print(f"Detected trade: {trade_id} on {timestamp}")
-                    for d in details:
-                        print(f"  - {d}")
-
-            return trades
-
-async def trade_check_loop():
+async def transaction_loop():
     await client.wait_until_ready()
     channel = client.get_channel(CHANNEL_ID)
-    print(f"Posting to channel: {channel}")
-
     if channel is None:
         print("❌ ERROR: Cannot find channel. Check .env and permissions.")
         return
@@ -133,20 +148,15 @@ async def trade_check_loop():
     await load_players()
 
     while not client.is_closed():
-        print("Checking for trades...")
-        trades = await fetch_recent_trades()
-
-        for trade_id, timestamp, details in trades:
-            if trade_id not in posted_trades:
-                posted_trades.add(trade_id)
-                trade_msg = f"📦 **Trade Alert ({timestamp.strftime('%b %d, %Y')}):**\n" + "\n".join(details)
-                await channel.send(trade_msg)
-
+        print("Checking for transactions...")
+        txs = await fetch_all_transactions()
+        for msg in txs:
+            await channel.send(msg + "\n" + "-" * 40)
         await asyncio.sleep(CHECK_INTERVAL)
 
 @client.event
 async def on_ready():
     print(f"✅ Logged in as {client.user}")
-    client.loop.create_task(trade_check_loop())
+    client.loop.create_task(transaction_loop())
 
 client.run(DISCORD_TOKEN)
