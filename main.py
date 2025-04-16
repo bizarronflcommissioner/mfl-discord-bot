@@ -109,6 +109,7 @@ async def fetch_all_transactions():
             transactions = []
 
             for tx in root.findall("transaction"):
+                print("🧾 DEBUG RAW TRANSACTION:\n", ET.tostring(tx, encoding='unicode'))
                 tx_id = tx.get("timestamp")
                 if tx_id in posted_transactions:
                     continue
