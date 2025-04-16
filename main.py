@@ -190,7 +190,10 @@ async def post_draft_updates():
                 await channel.send(msg)
 
         except Exception as e:
-            print(f"Draft post error: {e}")
+            import traceback
+            print("Draft post error:")
+            traceback.print_exc()
+
 
         await asyncio.sleep(DRAFT_CHECK_INTERVAL)
 
