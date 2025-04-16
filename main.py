@@ -173,6 +173,7 @@ async def fetch_ir_moves(channel):
                 return
             data = await resp.json()
             injuries = data.get("injuries", {}).get("injury", [])
+            print(f"📋 Raw IR Data: {injuries}")
             for entry in injuries:
                 player_id = entry.get("player")
                 status = entry.get("status")
