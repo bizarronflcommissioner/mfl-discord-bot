@@ -82,6 +82,7 @@ async def load_franchises():
     async with aiohttp.ClientSession() as session:
         async with session.get(url) as resp:
             data = await resp.json()
+            print("📋 Raw IR JSON:", data)
             for f in data["league"]["franchises"]["franchise"]:
                 franchise_names[f["id"]] = f["name"]
     print(f"✅ Loaded {len(franchise_names)} franchises.")
@@ -165,6 +166,7 @@ async def fetch_all_transactions():
             return transactions
 
 async def fetch_ir_moves(channel):
+    print("📋 Checking IR endpoint...")
     url = f"https://www43.myfantasyleague.com/{SEASON_YEAR}/export?TYPE=injuries&L={LEAGUE_ID}&JSON=1"
     async with aiohttp.ClientSession() as session:
         async with session.get(url) as resp:
@@ -173,7 +175,6 @@ async def fetch_ir_moves(channel):
                 return
             data = await resp.json()
             injuries = data.get("injuries", {}).get("injury", [])
-            print(f"📋 Raw IR Data: {injuries}")
             for entry in injuries:
                 player_id = entry.get("player")
                 status = entry.get("status")
