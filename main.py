@@ -125,7 +125,7 @@ async def fetch_all_transactions():
                     team2 = tx.get("franchise2")
                     t1_items = [format_item(i) for i in tx.get("franchise1_gave_up", "").strip(",").split(",") if i]
                     t2_items = [format_item(i) for i in tx.get("franchise2_gave_up", "").strip(",").split(",") if i]
-                    lines = [f"**Trade Alert ({timestamp})**",
+                    lines = [f"🔄 **Trade Alert ({timestamp})**",
                              f"{franchise_names.get(team1, team1)} traded: {', '.join(t1_items)}",
                              f"{franchise_names.get(team2, team2)} traded: {', '.join(t2_items)}"]
                     note = tx.get("comments", "").strip()
@@ -139,9 +139,11 @@ async def fetch_all_transactions():
                 elif tx_type == "FREE_AGENT":
                     player_id = next((p.strip() for p in raw_tx.replace("|", ",").split(",") if p.strip().isdigit()), None)
                     if player_id:
-                        action = "signed" if not raw_tx.startswith("|") else "released"
+                        is_add = not raw_tx.startswith("|")
+                        action = "signed" if is_add else "released"
+                        emoji = "🟢" if is_add else "🔴"
                         player = player_names.get(player_id, f"Player #{player_id}")
-                        transactions.append(f"**Add/Drop Alert ({timestamp})**: {team_name} {action} {player}")
+                        transactions.append(f"{emoji} **Add/Drop Alert ({timestamp})**: {team_name} {action} {player}")
 
                 elif tx_type == "AUCTION_WON":
                     parts = raw_tx.split("|")
@@ -149,7 +151,7 @@ async def fetch_all_transactions():
                         player_id, bid = parts[0], parts[1]
                         bid_amt = float(bid) / 1_000_000
                         player = player_names.get(player_id, f"Player #{player_id}")
-                        transactions.append(f"**Auction Win ({timestamp})**: {team_name} won {player} for ${bid_amt}m")
+                        transactions.append(f"💵 **Auction Win ({timestamp})**: {team_name} won {player} for ${bid_amt}m")
 
                 elif tx_type == "TAXI":
                     promo = ", ".join(player_names.get(p, f"Player #{p}") for p in tx.get("promoted", "").split(",") if p)
@@ -157,13 +159,13 @@ async def fetch_all_transactions():
                     move = []
                     if promo: move.append(f"promoted: {promo}")
                     if demo: move.append(f"demoted: {demo}")
-                    transactions.append(f"**Taxi Move ({timestamp})**: {team_name} " + " | ".join(move))
+                    transactions.append(f"🚌 **Taxi Move ({timestamp})**: {team_name} " + " | ".join(move))
 
                 elif tx_type == "IR":
                     player_id = next((p.strip() for p in raw_tx.replace("|", ",").split(",") if p.strip().isdigit()), None)
                     if player_id:
                         player = player_names.get(player_id, f"Player #{player_id}")
-                        transactions.append(f"**IR Move ({timestamp})**: {team_name} placed {player} on injured reserve")
+                        transactions.append(f"🏥 **IR Move ({timestamp})**: {team_name} placed {player} on injured reserve")
 
             return transactions
 
