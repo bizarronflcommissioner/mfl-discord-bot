@@ -1,27 +1,26 @@
+import os
+import re
 import discord
 import asyncio
 import aiohttp
 import xml.etree.ElementTree as ET
 from datetime import datetime
 from dotenv import load_dotenv
-import os
-import re
 
 # Load environment variables
 load_dotenv()
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
-CHANNEL_ID = int(os.getenv("CHANNEL_ID"))  # Transactions Channel
-DRAFT_CHANNEL_ID = int(os.getenv("DRAFT_CHANNEL_ID"))  # Draft Channel
+CHANNEL_ID = int(os.getenv("CHANNEL_ID"))  # General channel
+DRAFT_CHANNEL_ID = 1359911725327056922     # Draft channel
 LEAGUE_ID = os.getenv("LEAGUE_ID")
 SEASON_YEAR = 2025
-TRANSACTION_INTERVAL = 60
+CHECK_INTERVAL = 60
 DRAFT_INTERVAL = 300
 
 intents = discord.Intents.default()
 client = discord.Client(intents=intents)
 posted_transactions = set()
 posted_picks = set()
-
 franchise_names = {}
 player_names = {}
 
@@ -34,19 +33,15 @@ def format_item(item):
         rnd, pick = dp_match.groups()
         try:
             round_num = int(rnd) + 1
-            pick_num = int(pick)
+            pick_num = int(pick) + 1
             return f"{SEASON_YEAR} {ordinal(round_num)} Round Pick (Pick {pick_num})"
         except:
             return f"{SEASON_YEAR} Draft Pick Round {rnd}, Pick {pick}"
     fp_match = re.match(r"FP_(\d{4})_(\d{4})_(\d+)", item)
     if fp_match:
         team, year, rnd = fp_match.groups()
-        try:
-            round_num = int(rnd)
-            team_name = franchise_names.get(team, f"Team {team}")
-            return f"{year} {ordinal(round_num)} Round Pick (from {team_name})"
-        except:
-            return f"{year} Draft Pick Round {rnd} (from {team_name})"
+        team_name = franchise_names.get(team, f"Team {team}")
+        return f"{year} {ordinal(int(rnd))} Round Pick (from {team_name})"
     if item.isdigit():
         return player_names.get(item, f"Player #{item}")
     return item
@@ -58,6 +53,7 @@ async def load_franchises():
             data = await resp.json()
             for f in data["league"]["franchises"]["franchise"]:
                 franchise_names[f["id"]] = f["name"]
+    print(f"Loaded {len(franchise_names)} franchises.")
 
 async def load_players():
     url = f"https://www43.myfantasyleague.com/{SEASON_YEAR}/export?TYPE=players&L={LEAGUE_ID}&JSON=1"
@@ -69,16 +65,20 @@ async def load_players():
                 name = player.get("name", f"Player #{pid}")
                 if pid:
                     player_names[pid] = name
+    print(f"Loaded {len(player_names)} players.")
 
 async def fetch_all_transactions():
     url = f"https://www43.myfantasyleague.com/{SEASON_YEAR}/export?TYPE=transactions&L={LEAGUE_ID}&TRANS_TYPE=ALL"
     async with aiohttp.ClientSession() as session:
         async with session.get(url) as resp:
             if resp.status != 200:
+                print(f"Failed to fetch transactions: HTTP {resp.status}")
                 return []
+
             xml_data = await resp.text()
             root = ET.fromstring(xml_data)
             transactions = []
+
             for tx in root.findall("transaction"):
                 tx_id = tx.get("timestamp")
                 if tx_id in posted_transactions:
@@ -95,11 +95,11 @@ async def fetch_all_transactions():
                     team2 = tx.get("franchise2")
                     t1_items = [format_item(i) for i in tx.get("franchise1_gave_up", "").strip(",").split(",") if i]
                     t2_items = [format_item(i) for i in tx.get("franchise2_gave_up", "").strip(",").split(",") if i]
-                    team1_line = f"{franchise_names.get(team1, team1)} traded: {', '.join(t1_items) if t1_items else '(nothing)'}"
-                    team2_line = f"{franchise_names.get(team2, team2)} traded: {', '.join(t2_items) if t2_items else '(nothing)'}"
+                    lines = [f"**Trade Alert ({timestamp})**"]
+                    lines.append(f"{franchise_names.get(team1, team1)} traded: {', '.join(t1_items) if t1_items else '(nothing)'}")
+                    lines.append(f"{franchise_names.get(team2, team2)} traded: {', '.join(t2_items) if t2_items else '(nothing)'}")
                     note = tx.get("comments", "").strip()
                     offer_msg = tx.get("message", "").strip()
-                    lines = [f"**Trade Alert ({timestamp})**", team1_line, team2_line]
                     if note:
                         lines.append(f"Note: {note}")
                     if offer_msg:
@@ -117,10 +117,7 @@ async def fetch_all_transactions():
                     parts = raw_tx.split("|")
                     if len(parts) >= 2:
                         player_id, bid = parts[0], parts[1]
-                        try:
-                            bid_amt = float(bid) / 1_000_000
-                        except:
-                            bid_amt = bid
+                        bid_amt = float(bid) / 1_000_000 if bid.isdigit() else bid
                         player = player_names.get(player_id, f"Player #{player_id}")
                         transactions.append(f"**Auction Win ({timestamp})**: {team_name} won {player} for ${bid_amt}m")
 
@@ -141,27 +138,23 @@ async def fetch_all_transactions():
                     if player_id:
                         player = player_names.get(player_id, f"Player #{player_id}")
                         transactions.append(f"**IR Move ({timestamp})**: {team_name} placed {player} on injured reserve")
+
             return transactions
 
-async def fetch_draft():
+async def fetch_draft_updates():
     url = f"https://www43.myfantasyleague.com/{SEASON_YEAR}/export?TYPE=draftResults&L={LEAGUE_ID}&JSON=1"
     async with aiohttp.ClientSession() as session:
         async with session.get(url) as resp:
-            if resp.status != 200:
-                return [], None
             data = await resp.json()
-            try:
-                draft_unit = data.get("draftResults", {}).get("draftUnit", [])
-                picks = draft_unit[0].get("draftPick", [])
-                start_time = draft_unit[0].get("startTime")
-                return picks, start_time
-            except (IndexError, AttributeError):
-                return [], None
+            draft_unit = data.get("draftResults", {}).get("draftUnit", [{}])
+            picks = draft_unit[0].get("draftPick", [])
+            start_time = draft_unit[0].get("startTime")
+            return picks, start_time
 
 async def transaction_loop():
     await client.wait_until_ready()
-    channel = client.get_channel(CHANNEL_ID)
-    if channel is None:
+    tx_channel = client.get_channel(CHANNEL_ID)
+    if tx_channel is None:
         print("❌ ERROR: Cannot find transaction channel.")
         return
     await load_franchises()
@@ -169,24 +162,22 @@ async def transaction_loop():
     while not client.is_closed():
         txs = await fetch_all_transactions()
         for msg in txs:
-            await channel.send(msg + "\n" + "-" * 40)
-        await asyncio.sleep(TRANSACTION_INTERVAL)
+            await tx_channel.send(msg + "\n" + "-" * 40)
+        await asyncio.sleep(CHECK_INTERVAL)
 
-async def draft_check_loop():
+async def draft_loop():
     await client.wait_until_ready()
-    channel = client.get_channel(DRAFT_CHANNEL_ID)
-    if channel is None:
+    draft_channel = client.get_channel(DRAFT_CHANNEL_ID)
+    if draft_channel is None:
         print("❌ ERROR: Cannot find draft channel.")
         return
+    await load_franchises()
     draft_announced = False
     while not client.is_closed():
-        picks, start_time = await fetch_draft()
-        if not picks:
-            await asyncio.sleep(DRAFT_INTERVAL)
-            continue
+        picks, start_time = await fetch_draft_updates()
         if not draft_announced and start_time:
             readable_time = datetime.fromtimestamp(int(start_time)).strftime('%b %d, %Y %I:%M %p')
-            await channel.send(f"🏈 **The draft has started!** First pick scheduled for {readable_time}.\n{'-' * 40}")
+            await draft_channel.send(f"🏈 **The draft has started!** First pick scheduled for {readable_time}.\n{'-' * 40}")
             draft_announced = True
         for i, pick in enumerate(picks):
             pick_id = pick["timestamp"]
@@ -197,20 +188,20 @@ async def draft_check_loop():
             player_name = pick.get("playerName", f"Player #{pick.get('player')}")
             round_num = pick["round"]
             pick_num = pick["pick"]
-            message = f"🏈 **Draft Pick:** {franchise_names.get(franchise, f'Franchise {franchise}')} selected {player_name} (Round {round_num}, Pick {pick_num})"
+            msg = f"🏈 **Draft Pick:** {franchise_names.get(franchise, f'Franchise {franchise}')} selected {player_name} (Round {round_num}, Pick {pick_num})"
             if i + 1 < len(picks):
                 on_clock = picks[i + 1]["franchise"]
-                message += f"\n🕒 On the clock: {franchise_names.get(on_clock, f'Franchise {on_clock}')}"
+                msg += f"\n🕒 On the clock: {franchise_names.get(on_clock, f'Franchise {on_clock}')}"
             if i + 2 < len(picks):
                 on_deck = picks[i + 2]["franchise"]
-                message += f"\n📋 On deck: {franchise_names.get(on_deck, f'Franchise {on_deck}')}"
-            await channel.send(message + "\n" + "-" * 40)
+                msg += f"\n📋 On deck: {franchise_names.get(on_deck, f'Franchise {on_deck}')}"
+            await draft_channel.send(msg + "\n" + "-" * 40)
         await asyncio.sleep(DRAFT_INTERVAL)
 
 @client.event
 async def on_ready():
     print(f"✅ Logged in as {client.user}")
     client.loop.create_task(transaction_loop())
-    client.loop.create_task(draft_check_loop())
+    client.loop.create_task(draft_loop())
 
 client.run(DISCORD_TOKEN)
