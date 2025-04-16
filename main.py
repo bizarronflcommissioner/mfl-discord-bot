@@ -30,8 +30,8 @@ def format_item(item):
     if dp_match:
         rnd, pick = dp_match.groups()
         try:
-            round_num = int(rnd) + 1  # MFL uses 0-based rounds
-            pick_num = int(pick) + 1     # This is already 1-based from MFL
+            round_num = int(rnd) + 1
+            pick_num = int(pick) + 1
             return f"{SEASON_YEAR} {ordinal(round_num)} Round Pick (Pick {pick_num})"
         except:
             return f"{SEASON_YEAR} Draft Pick Round {rnd}, Pick {pick}"
@@ -40,7 +40,7 @@ def format_item(item):
     if fp_match:
         team, year, rnd = fp_match.groups()
         try:
-            round_num = int(rnd) + 1
+            round_num = int(rnd)  # FP is already 1-based
             team_name = franchise_names.get(team, f"Team {team}")
             return f"{year} {ordinal(round_num)} Round Pick (from {team_name})"
         except:
