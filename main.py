@@ -160,6 +160,7 @@ async def post_draft_updates():
     while not client.is_closed():
         try:
             data = await fetch_draft_results()
+            print("DEBUG draft JSON:", data)
             draft_unit = data.get("draftResults", {}).get("draftUnit", [{}])[0]
             picks = draft_unit.get("draftPick", [])
             start_time = draft_unit.get("startTime")
