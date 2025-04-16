@@ -10,8 +10,7 @@ import re
 # Load environment variables
 load_dotenv()
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
-CHANNEL_ID = 1359911725327056921
-DRAFT_CHANNEL_ID = 1359911725327056922
+CHANNEL_ID = int(os.getenv("CHANNEL_ID"))
 LEAGUE_ID = os.getenv("LEAGUE_ID")
 SEASON_YEAR = 2025
 CHECK_INTERVAL = 60
@@ -19,8 +18,6 @@ CHECK_INTERVAL = 60
 intents = discord.Intents.default()
 client = discord.Client(intents=intents)
 posted_transactions = set()
-posted_draft_picks = set()
-draft_started = False
 
 franchise_names = {}
 player_names = {}
@@ -33,7 +30,7 @@ def format_item(item):
     if dp_match:
         rnd, pick = dp_match.groups()
         try:
-            round_num = int(rnd) + 1
+            round_num = int(rnd) + 1  # MFL uses 0-based round numbers
             pick_num = int(pick)
             return f"{SEASON_YEAR} {ordinal(round_num)} Round Pick (Pick {pick_num})"
         except:
@@ -113,15 +110,14 @@ async def fetch_all_transactions():
                         lines.append(f"Note: {note}")
                     if offer_msg:
                         lines.append(f"Optional Message: {offer_msg}")
-                    transactions.append(("\n".join(lines), CHANNEL_ID))
+                    transactions.append("\n".join(lines))
 
                 elif tx_type == "FREE_AGENT":
                     player_id = next((p.strip() for p in raw_tx.replace("|", ",").split(",") if p.strip().isdigit()), None)
                     if player_id:
                         action = "signed" if not raw_tx.startswith("|") else "released"
                         player = player_names.get(player_id, f"Player #{player_id}")
-                        msg = f"**Add/Drop Alert ({timestamp})**: {team_name} {action} {player}"
-                        transactions.append((msg, CHANNEL_ID))
+                        transactions.append(f"**Add/Drop Alert ({timestamp})**: {team_name} {action} {player}")
 
                 elif tx_type == "AUCTION_WON":
                     parts = raw_tx.split("|")
@@ -132,8 +128,7 @@ async def fetch_all_transactions():
                         except:
                             bid_amt = bid
                         player = player_names.get(player_id, f"Player #{player_id}")
-                        msg = f"**Auction Win ({timestamp})**: {team_name} won {player} for ${bid_amt}m"
-                        transactions.append((msg, CHANNEL_ID))
+                        transactions.append(f"**Auction Win ({timestamp})**: {team_name} won {player} for ${bid_amt}m")
 
                 elif tx_type == "TAXI":
                     promoted = tx.get("promoted", "").strip(",")
@@ -145,54 +140,31 @@ async def fetch_all_transactions():
                         move.append(f"promoted: {promo}")
                     if demo:
                         move.append(f"demoted: {demo}")
-                    transactions.append((f"**Taxi Move ({timestamp})**: {team_name} " + " | ".join(move), CHANNEL_ID))
+                    transactions.append(f"**Taxi Move ({timestamp})**: {team_name} " + " | ".join(move))
+
+                elif tx_type == "IR":
+                    player_id = next((p.strip() for p in raw_tx.replace("|", ",").split(",") if p.strip().isdigit()), None)
+                    if player_id:
+                        player = player_names.get(player_id, f"Player #{player_id}")
+                        transactions.append(f"**IR Move ({timestamp})**: {team_name} placed {player} on injured reserve")
 
             return transactions
 
-async def fetch_draft_updates():
-    global draft_started
-    url = f"https://www43.myfantasyleague.com/{SEASON_YEAR}/export?TYPE=draftResults&L={LEAGUE_ID}&JSON=1"
-    async with aiohttp.ClientSession() as session:
-        async with session.get(url) as resp:
-            data = await resp.json()
-            picks = data.get("draftResults", {}).get("draftUnit", [{}])[0].get("draftPick", [])
-
-            if picks and not draft_started:
-                draft_started = True
-                return [("🏁 **The Rookie Draft Has Started!**", DRAFT_CHANNEL_ID)]
-
-            messages = []
-            for pick in picks:
-                pick_id = pick["timestamp"]
-                if pick_id in posted_draft_picks:
-                    continue
-                posted_draft_picks.add(pick_id)
-                franchise = franchise_names.get(pick["franchise"], f"Franchise {pick['franchise']}")
-                player = player_names.get(pick["player"], f"Player #{pick['player']}")
-                round_num = pick.get("round")
-                pick_num = pick.get("pick")
-                msg = f"**Rookie Draft Pick:** {franchise} selected {player} (Round {round_num}, Pick {pick_num})"
-                messages.append((msg, DRAFT_CHANNEL_ID))
-
-            return messages
-
 async def transaction_loop():
     await client.wait_until_ready()
+    channel = client.get_channel(CHANNEL_ID)
+    if channel is None:
+        print("❌ ERROR: Cannot find channel. Check .env and permissions.")
+        return
+
     await load_franchises()
     await load_players()
 
     while not client.is_closed():
         print("Checking for transactions...")
         txs = await fetch_all_transactions()
-        draft_msgs = await fetch_draft_updates()
-
-        all_msgs = (txs or []) + (draft_msgs or [])
-
-        for msg, channel_id in all_msgs:
-            channel = client.get_channel(channel_id)
-            if channel:
-                await channel.send(msg + "\n" + "-" * 40)
-
+        for msg in txs:
+            await channel.send(msg + "\n" + "-" * 40)
         await asyncio.sleep(CHECK_INTERVAL)
 
 @client.event
