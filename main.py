@@ -34,7 +34,7 @@ def format_item(item):
         rnd, pick = dp_match.groups()
         try:
             round_num = int(rnd) + 1  # MFL uses 0-based round numbers
-            pick_num = int(pick)      # Already 1-based in MFL
+            pick_num = int(pick) + 1  # Already 1-based in MFL
             return f"{SEASON_YEAR} {ordinal(round_num)} Round Pick (Pick {pick_num})"
         except:
             return f"{SEASON_YEAR} Draft Pick Round {rnd}, Pick {pick}"
