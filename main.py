@@ -149,8 +149,34 @@ async def fetch_and_post_draft_updates():
         await asyncio.sleep(DRAFT_CHECK_INTERVAL)
 
 async def fetch_and_post_transactions():
-    # already complete and working
-    pass
+    await bot.wait_until_ready()
+    channel = bot.get_channel(CHANNEL_ID)
+    if not channel:
+        print("❌ Could not find the transactions channel.")
+        return
+
+    while not bot.is_closed():
+        print("🧾 Checking for new transactions...")
+        url = f"https://www43.myfantasyleague.com/{SEASON_YEAR}/export?TYPE=transactions&L={LEAGUE_ID}&JSON=1"
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url) as resp:
+                data = await resp.json()
+                for tx in data.get("transactions", {}).get("transaction", []):
+                    tx_id = tx.get("timestamp")
+                    if tx_id in posted_transactions:
+                        continue
+                    posted_transactions.add(tx_id)
+                    t_type = tx.get("type")
+                    f_id = tx.get("franchise")
+                    team = franchise_names.get(f_id, f"Franchise {f_id}")
+                    if t_type == "auction":
+                        player_id = tx.get("player")
+                        amount = int(tx.get("amount", 0)) / 1000000.0
+                        player = player_names.get(player_id, f"Player #{player_id}")
+                        msg = f"💰 **Auction Win!** {team} won {player} for ${amount:.1f}M"
+                        await channel.send(msg)
+
+        await asyncio.sleep(TRANSACTION_CHECK_INTERVAL)
 
 @bot.command(name="setuser")
 async def setuser(ctx, franchise_id: str, user: discord.Member):
