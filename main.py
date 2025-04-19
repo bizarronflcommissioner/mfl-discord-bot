@@ -167,20 +167,32 @@ async def fetch_and_post_transactions():
                     t_type = tx.get("type", "").lower()
                     f_id = tx.get("franchise", "0000")
                     team = franchise_names.get(f_id, f"Franchise {f_id}")
+                    timestamp = datetime.fromtimestamp(int(tx_id)).strftime("%b %d, %Y %I:%M %p")
 
                     try:
-                        if t_type == "add":
-                            player_id = tx.get("player")
-                            player = player_names.get(player_id, f"Player #{player_id}")
-                            timestamp = datetime.fromtimestamp(int(tx_id)).strftime("%b %d, %Y %I:%M %p")
-                            msg = f"🟢 Add/Drop Alert ({timestamp}): {team}  signed {player}\n{'-' * 40}"
+                        if t_type == "free_agent":
+                            transaction_data = tx.get("transaction", "")
+                            adds = re.findall(r"\|(\d+)", transaction_data)
+                            drops = re.findall(r"(\d+),\|", transaction_data)
+
+                            for pid in adds:
+                                player = player_names.get(pid, f"Player #{pid}")
+                                msg = f"🟢 Add/Drop Alert ({timestamp}): {team} signed {player}\n{'-' * 40}"
+                                await txn_channel.send(msg)
+
+                            for pid in drops:
+                                player = player_names.get(pid, f"Player #{pid}")
+                                msg = f"🔴 Add/Drop Alert ({timestamp}): {team} released {player}\n{'-' * 40}"
+                                await txn_channel.send(msg)
+
+                        elif t_type == "add":
+                            player = player_names.get(tx.get("player"), f"Player #{tx.get('player')}")
+                            msg = f"🟢 Add/Drop Alert ({timestamp}): {team} signed {player}\n{'-' * 40}"
                             await txn_channel.send(msg)
 
                         elif t_type == "drop":
-                            player_id = tx.get("player")
-                            player = player_names.get(player_id, f"Player #{player_id}")
-                            timestamp = datetime.fromtimestamp(int(tx_id)).strftime("%b %d, %Y %I:%M %p")
-                            msg = f"🔴 Add/Drop Alert ({timestamp}): {team}  released {player}\n{'-' * 40}"
+                            player = player_names.get(tx.get("player"), f"Player #{tx.get('player')}")
+                            msg = f"🔴 Add/Drop Alert ({timestamp}): {team} released {player}\n{'-' * 40}"
                             await txn_channel.send(msg)
 
                         elif t_type == "trade":
@@ -189,7 +201,6 @@ async def fetch_and_post_transactions():
                             other = tx.get("franchise2")
                             other_team = franchise_names.get(other, f"Franchise {other}")
                             note = tx.get("comments", "")
-                            timestamp = datetime.fromtimestamp(int(tx_id)).strftime("%b %d, %Y %I:%M %p")
 
                             msg1 = f"🔄 Trade Alert ({timestamp})\n{team} traded: {', '.join(format_item(i) for i in sent if i)}\n{other_team}  traded: {', '.join(format_item(i) for i in received if i)}"
                             await txn_channel.send(msg1 + "\n" + "-" * 40)
