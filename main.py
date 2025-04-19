@@ -183,6 +183,21 @@ async def fetch_and_post_transactions():
                             msg = f"🔴 Add/Drop Alert ({timestamp}): {team}  released {player}\n{'-' * 40}"
                             await txn_channel.send(msg)
 
+                        elif t_type == "trade":
+                            sent = tx.get("franchise1_gave_up", "").split(",")
+                            received = tx.get("franchise2_gave_up", "").split(",")
+                            other = tx.get("franchise2")
+                            other_team = franchise_names.get(other, f"Franchise {other}")
+                            note = tx.get("comments", "")
+                            timestamp = datetime.fromtimestamp(int(tx_id)).strftime("%b %d, %Y %I:%M %p")
+
+                            msg1 = f"🔄 Trade Alert ({timestamp})\n{team} traded: {', '.join(format_item(i) for i in sent if i)}\n{other_team}  traded: {', '.join(format_item(i) for i in received if i)}"
+                            await txn_channel.send(msg1 + "\n" + "-" * 40)
+
+                            if note:
+                                msg2 = f"🔄 Trade Alert ({timestamp})\n{team} traded: {', '.join(format_item(i) for i in received if i)}\n{other_team}  traded: {', '.join(format_item(i) for i in sent if i)}\nNote: {note}"
+                                await txn_channel.send(msg2 + "\n" + "-" * 40)
+
                     except Exception as e:
                         print(f"❌ Error processing transaction: {tx} | {e}")
 
