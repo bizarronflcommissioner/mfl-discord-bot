@@ -169,16 +169,18 @@ async def fetch_and_post_transactions():
                     team = franchise_names.get(f_id, f"Franchise {f_id}")
 
                     try:
-                        if t_type in ["add", "free_agent"]:
-                            player_id = tx.get("player") or tx.get("transaction", "").strip("|").split(",")[0]
+                        if t_type == "add":
+                            player_id = tx.get("player")
                             player = player_names.get(player_id, f"Player #{player_id}")
-                            msg = f"🟩 **Add:** {team} added {player}"
+                            timestamp = datetime.fromtimestamp(int(tx_id)).strftime("%b %d, %Y %I:%M %p")
+                            msg = f"🟢 Add/Drop Alert ({timestamp}): {team}  signed {player}\n{'-' * 40}"
                             await txn_channel.send(msg)
 
                         elif t_type == "drop":
-                            player_id = tx.get("player") or tx.get("transaction", "").strip("|").split(",")[0]
+                            player_id = tx.get("player")
                             player = player_names.get(player_id, f"Player #{player_id}")
-                            msg = f"🟥 **Drop:** {team} dropped {player}"
+                            timestamp = datetime.fromtimestamp(int(tx_id)).strftime("%b %d, %Y %I:%M %p")
+                            msg = f"🔴 Add/Drop Alert ({timestamp}): {team}  released {player}\n{'-' * 40}"
                             await txn_channel.send(msg)
 
                     except Exception as e:
