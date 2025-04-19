@@ -20,7 +20,7 @@ DRAFT_CHECK_INTERVAL = 300
 
 intents = discord.Intents.default()
 intents.members = True
-intents.message_content = True  # 👈 Add this line
+intents.message_content = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
 franchise_names = {}
@@ -188,7 +188,8 @@ async def reloadusers(ctx):
         await ctx.send("🔁 User mapping reloaded from file.")
     except Exception as e:
         await ctx.send(f"❌ Failed to reload user map: {e}")
-        @bot.command(name="debugenv")
+
+@bot.command(name="debugenv")
 async def debugenv(ctx):
     await ctx.send(
         f"**Environment Values:**\n"
@@ -202,6 +203,5 @@ async def debugenv(ctx):
 async def on_ready():
     print(f"✅ Logged in as {bot.user}")
     bot.loop.create_task(transaction_loop())
-print("DISCORD_TOKEN loaded:", bool(DISCORD_TOKEN))
-print("DISCORD_TOKEN preview:", DISCORD_TOKEN[:10] + "..." if DISCORD_TOKEN else "None")
+
 bot.run(DISCORD_TOKEN)
