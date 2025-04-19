@@ -148,6 +148,7 @@ async def fetch_and_post_draft_updates():
         await asyncio.sleep(DRAFT_CHECK_INTERVAL)
 
 async def fetch_and_post_transactions():
+    await bot.wait_until_ready()
     txn_channel = bot.get_channel(CHANNEL_ID)
     if not txn_channel:
         print("❌ Could not find the transactions channel.")
@@ -160,6 +161,9 @@ async def fetch_and_post_transactions():
             async with session.get(url) as resp:
                 data = await resp.json()
                 txns = data.get("transactions", {}).get("transaction", [])
+                if isinstance(txns, dict):
+                    txns = [txns]  # Normalize single transaction case
+
                 print(f"📦 Found {len(txns)} transactions")
 
                 for tx in txns:
@@ -169,43 +173,46 @@ async def fetch_and_post_transactions():
                     posted_transactions.add(tx_id)
 
                     t_type = tx.get("type")
-                    f_id = tx.get("franchise")
+                    f_id = tx.get("franchise", "0000")
                     team = franchise_names.get(f_id, f"Franchise {f_id}")
+                    print(f"🔍 Processing transaction: {t_type} | {team}")
 
-                    if not t_type:
-                        print(f"⚠️ Skipping unknown transaction: {tx}")
-                        continue
+                    try:
+                        if t_type == "auction":
+                            player_id = tx.get("player")
+                            amount = int(tx.get("amount", 0)) / 1000000.0
+                            player = player_names.get(player_id, f"Player #{player_id}")
+                            msg = f"💰 **Auction Win!** {team} won {player} for ${amount:.1f}M"
+                            await txn_channel.send(msg)
 
-                    if t_type == "auction":
-                        player_id = tx.get("player")
-                        amount = int(tx.get("amount", 0)) / 1000000.0
-                        player = player_names.get(player_id, f"Player #{player_id}")
-                        msg = f"💰 **Auction Win!** {team} won {player} for ${amount:.1f}M"
-                        await txn_channel.send(msg)
+                        elif t_type == "trade":
+                            items = tx.get("comments", "").split(";;")
+                            msg = f"🔁 **Trade Alert!** {team} traded: " + ", ".join(format_item(i) for i in items)
+                            await txn_channel.send(msg)
 
-                    elif t_type == "trade":
-                        items = tx.get("comments", "").split(";;")
-                        msg = f"🔁 **Trade Alert!** {team} traded: " + ", ".join(format_item(i) for i in items)
-                        await txn_channel.send(msg)
+                        elif t_type in ["add", "drop"]:
+                            player_id = tx.get("player")
+                            action = "added" if t_type == "add" else "dropped"
+                            player = player_names.get(player_id, f"Player #{player_id}")
+                            msg = f"🔁 **Roster Move:** {team} {action} {player}"
+                            await txn_channel.send(msg)
 
-                    elif t_type in ["add", "drop"]:
-                        player_id = tx.get("player")
-                        action = "added" if t_type == "add" else "dropped"
-                        player = player_names.get(player_id, f"Player #{player_id}")
-                        msg = f"🔁 **Roster Move:** {team} {action} {player}"
-                        await txn_channel.send(msg)
+                        elif t_type == "waiver":
+                            player_id = tx.get("player")
+                            player = player_names.get(player_id, f"Player #{player_id}")
+                            msg = f"📥 **Waiver Claim:** {team} claimed {player}"
+                            await txn_channel.send(msg)
 
-                    elif t_type == "waiver":
-                        player_id = tx.get("player")
-                        player = player_names.get(player_id, f"Player #{player_id}")
-                        msg = f"📥 **Waiver Claim:** {team} claimed {player}"
-                        await txn_channel.send(msg)
+                        elif t_type == "ir":
+                            player_id = tx.get("player")
+                            player = player_names.get(player_id, f"Player #{player_id}")
+                            msg = f"🏥 **IR Move:** {team} moved {player} to IR"
+                            await txn_channel.send(msg)
 
-                    elif t_type == "ir":
-                        player_id = tx.get("player")
-                        player = player_names.get(player_id, f"Player #{player_id}")
-                        msg = f"🏥 **IR Move:** {team} moved {player} to IR"
-                        await txn_channel.send(msg)
+                        else:
+                            print(f"⚠️ Unhandled transaction type: {t_type} -> {tx}")
+                    except Exception as e:
+                        print(f"❌ Error processing transaction: {tx} | {e}")
 
         await asyncio.sleep(TRANSACTION_CHECK_INTERVAL)
 
