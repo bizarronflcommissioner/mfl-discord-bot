@@ -206,8 +206,16 @@ async def listusers(ctx):
 @bot.event
 async def on_ready():
     print(f"✅ Logged in as {bot.user}")
-    bot.loop.create_task(load_franchises())
-    bot.loop.create_task(load_players())
+
+    await load_franchises()
+    await load_players()
+
+    draft_channel = bot.get_channel(DRAFT_CHANNEL_ID)
+    txn_channel = bot.get_channel(CHANNEL_ID)
+
+    print(f"📢 Draft Channel: {draft_channel} ({DRAFT_CHANNEL_ID})")
+    print(f"📢 Transaction Channel: {txn_channel} ({CHANNEL_ID})")
+
     bot.loop.create_task(fetch_and_post_draft_updates())
     bot.loop.create_task(fetch_and_post_transactions())
 
