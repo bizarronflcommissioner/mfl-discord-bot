@@ -105,6 +105,43 @@ async def load_players():
                 if pid:
                     player_names[pid] = name
 
+async def fetch_all_transactions():
+    url = f"https://www43.myfantasyleague.com/{SEASON_YEAR}/export?TYPE=transactions&L={LEAGUE_ID}&TRANS_TYPE=ALL"
+    async with aiohttp.ClientSession() as session:
+        async with session.get(url) as resp:
+            if resp.status != 200:
+                return []
+            xml_data = await resp.text()
+            root = ET.fromstring(xml_data)
+            transactions = []
+            for tx in root.findall("transaction"):
+                tx_id = tx.get("timestamp")
+                if tx_id in posted_transactions:
+                    continue
+                posted_transactions.add(tx_id)
+                timestamp = datetime.fromtimestamp(int(tx_id)).strftime('%b %d, %Y %I:%M %p')
+                tx_type = tx.get("type")
+                team = tx.get("franchise")
+                team_name = franchise_names.get(team, f"Team {team}")
+                raw_tx = tx.get("transaction", "")
+
+                if tx_type == "TRADE":
+                    team1 = tx.get("franchise")
+                    team2 = tx.get("franchise2")
+                    t1_items = [format_item(i) for i in tx.get("franchise1_gave_up", "").strip(",").split(",") if i]
+                    t2_items = [format_item(i) for i in tx.get("franchise2_gave_up", "").strip(",").split(",") if i]
+                    lines = [f"🔄 **Trade Alert ({timestamp})**",
+                             f"{franchise_names.get(team1, team1)} traded: {', '.join(t1_items)}",
+                             f"{franchise_names.get(team2, team2)} traded: {', '.join(t2_items)}"]
+                    note = tx.get("comments", "").strip()
+                    offer_msg = tx.get("message", "").strip()
+                    if note:
+                        lines.append(f"Note: {note}")
+                    if offer_msg:
+                        lines.append(f"Optional Message: {offer_msg}")
+                    transactions.append("\n".join(lines))
+            return transactions
+
 async def fetch_and_post_draft_updates(channel):
     global draft_announced
     url = f"https://www43.myfantasyleague.com/{SEASON_YEAR}/export?TYPE=draftResults&L={LEAGUE_ID}&JSON=1"
@@ -132,21 +169,25 @@ async def fetch_and_post_draft_updates(channel):
 
 async def transaction_loop():
     await bot.wait_until_ready()
+    tx_channel = bot.get_channel(CHANNEL_ID)
     draft_channel = bot.get_channel(DRAFT_CHANNEL_ID)
-    if not draft_channel:
-        print("❌ Could not find the draft channel.")
+    if not tx_channel or not draft_channel:
+        print("❌ Could not find one or more channels.")
         return
-
     await load_franchises()
     await load_players()
-
     while not bot.is_closed():
         print("🔁 Running draft update loop...")
         await fetch_and_post_draft_updates(draft_channel)
+        txs = await fetch_all_transactions()
+        for msg in txs:
+            await tx_channel.send(msg + "\n" + "-" * 40)
         await asyncio.sleep(DRAFT_CHECK_INTERVAL)
 
 @bot.command(name="listusers")
 async def listusers(ctx):
+    if not franchise_names:
+        await load_franchises()
     embed = discord.Embed(title="📋 MFL Franchise → Discord User Links", color=discord.Color.blue())
     count = 0
     for fid, name in franchise_names.items():
