@@ -105,44 +105,6 @@ async def load_players():
                 if pid:
                     player_names[pid] = name
 
-async def fetch_and_post_draft_updates():
-    draft_channel = bot.get_channel(DRAFT_CHANNEL_ID)
-    if not draft_channel:
-        print("❌ Could not find the draft channel.")
-        return
-
-    while not bot.is_closed():
-        url = f"https://www43.myfantasyleague.com/{SEASON_YEAR}/export?TYPE=draftResults&L={LEAGUE_ID}&JSON=1"
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url) as resp:
-                data = await resp.json()
-                draft_unit = data.get("draftResults", {}).get("draftUnit", {})
-                picks = draft_unit.get("draftPick", [])
-
-                global draft_announced
-                if not draft_announced and picks:
-                    draft_announced = True
-                    await draft_channel.send(f"\U0001F3C8 **The draft has begun!**\n{'-' * 40}")
-
-                for i, pick in enumerate(picks):
-                    ts = pick.get("timestamp")
-                    if not ts or ts in posted_picks:
-                        continue
-                    posted_picks.add(ts)
-                    next_pick = picks[i+1] if i+1 < len(picks) else None
-                    on_deck_pick = picks[i+2] if i+2 < len(picks) else None
-                    await draft_channel.send(format_draft_pick_message(pick, next_pick, on_deck_pick))
-
-                    if next_pick:
-                        next_id = next_pick.get("franchise")
-                        if next_id in user_map and next_id not in notified_users:
-                            user = await bot.fetch_user(int(user_map[next_id]))
-                            if user:
-                                await user.send(f"⏰ You're on the clock in the draft for {franchise_names.get(next_id)}!")
-                                notified_users.add(next_id)
-
-        await asyncio.sleep(DRAFT_CHECK_INTERVAL)
-
 async def fetch_and_post_transactions():
     txn_channel = bot.get_channel(CHANNEL_ID)
     if not txn_channel:
@@ -183,6 +145,15 @@ async def fetch_and_post_transactions():
                             for pid in drops:
                                 player = player_names.get(pid, f"Player #{pid}")
                                 msg = f"🔴 Add/Drop Alert ({timestamp}): {team} released {player}\n{'-' * 40}"
+                                await txn_channel.send(msg)
+
+                        elif t_type == "auction_won":
+                            auction_info = tx.get("transaction", "").split("|")
+                            if len(auction_info) >= 2:
+                                pid = auction_info[0]
+                                salary = float(auction_info[1]) / 1000000
+                                player = player_names.get(pid, f"Player #{pid}")
+                                msg = f"💰 Auction Win! {team}  won {player} for ${salary:.1f}M\n{'-' * 40}"
                                 await txn_channel.send(msg)
 
                         elif t_type == "add":
@@ -249,7 +220,6 @@ async def on_ready():
     await load_franchises()
     await load_players()
 
-    bot.loop.create_task(fetch_and_post_draft_updates())
     bot.loop.create_task(fetch_and_post_transactions())
 
 bot.run(DISCORD_TOKEN)
