@@ -166,14 +166,18 @@ async def fetch_and_post_transactions():
                         continue
                     posted_transactions.add(tx_id)
 
-                    t_type = tx.get("type")
+                    t_type = tx.get("type", "").lower()
                     f_id = tx.get("franchise", "0000")
                     team = franchise_names.get(f_id, f"Franchise {f_id}")
 
                     try:
-                        if t_type == "auction":
-                            player_id = tx.get("player")
-                            amount = int(tx.get("amount", 0)) / 1000000.0
+                        if t_type in ["auction", "auction_won"]:
+                            parts = tx.get("transaction", "").split("|")
+                            if len(parts) >= 2:
+                                player_id, amount = parts[0], float(parts[1]) / 1000000.0
+                            else:
+                                player_id = tx.get("player")
+                                amount = float(tx.get("amount", 0)) / 1000000.0
                             player = player_names.get(player_id, f"Player #{player_id}")
                             msg = f"💰 **Auction Win!** {team} won {player} for ${amount:.1f}M"
                             await txn_channel.send(msg)
@@ -186,9 +190,9 @@ async def fetch_and_post_transactions():
                             msg = f"🔁 **Trade Completed!** {team} and {other_team}\n{team} gave up: {', '.join(format_item(i) for i in sent if i)}\n{other_team} gave up: {', '.join(format_item(i) for i in received if i)}"
                             await txn_channel.send(msg)
 
-                        elif t_type in ["add", "drop"]:
-                            player_id = tx.get("player")
-                            action = "added" if t_type == "add" else "dropped"
+                        elif t_type in ["add", "drop", "free_agent"]:
+                            player_id = tx.get("player") or tx.get("transaction", "").strip("|").split(",")[0]
+                            action = "added" if t_type in ["add", "free_agent"] else "dropped"
                             player = player_names.get(player_id, f"Player #{player_id}")
                             msg = f"🔁 **Roster Move:** {team} {action} {player}"
                             await txn_channel.send(msg)
@@ -211,6 +215,19 @@ async def fetch_and_post_transactions():
                             else:
                                 msg = f"🏥 **IR Transaction:** {team} made an IR adjustment"
                             await txn_channel.send(msg)
+
+                        elif t_type == "taxi":
+                            promoted = tx.get("promoted", "").strip(",")
+                            demoted = tx.get("demoted", "").strip(",")
+                            msg_parts = []
+                            if promoted:
+                                players = ", ".join(format_item(pid) for pid in promoted.split(",") if pid)
+                                msg_parts.append(f"🚀 Promoted from Taxi: {players}")
+                            if demoted:
+                                players = ", ".join(format_item(pid) for pid in demoted.split(",") if pid)
+                                msg_parts.append(f"📥 Demoted to Taxi: {players}")
+                            if msg_parts:
+                                await txn_channel.send(f"🚌 **Taxi Squad Move:** {team}\n" + "\n".join(msg_parts))
 
                     except Exception as e:
                         print(f"❌ Error processing transaction: {tx} | {e}")
