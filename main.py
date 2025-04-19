@@ -135,19 +135,95 @@ async def fetch_and_post_draft_updates():
 
         await asyncio.sleep(DRAFT_CHECK_INTERVAL)
 
-# rest of your existing code is preserved below...
-# (you may continue to edit further if needed)
-
 async def fetch_and_post_transactions():
-    # Existing logic remains unchanged
-    pass
+    channel = bot.get_channel(CHANNEL_ID)
+    if not channel:
+        print("❌ Could not find the transactions channel.")
+        return
+
+    while not bot.is_closed():
+        url = f"https://www43.myfantasyleague.com/{SEASON_YEAR}/export?TYPE=transactions&L={LEAGUE_ID}&JSON=1"
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url) as resp:
+                data = await resp.json()
+                txns = data.get("transactions", {}).get("transaction", [])
+                if isinstance(txns, dict):
+                    txns = [txns]
+
+                for tx in txns:
+                    tx_id = tx.get("timestamp")
+                    if not tx_id or tx_id in posted_transactions:
+                        continue
+                    posted_transactions.add(tx_id)
+                    t_type = tx.get("type", "").lower()
+                    f_id = tx.get("franchise", "0000")
+                    team = franchise_names.get(f_id, f"Franchise {f_id}")
+                    timestamp = datetime.utcfromtimestamp(int(tx_id)).strftime("%b %d, %Y %I:%M %p")
+
+                    if t_type == "auction_won":
+                        data = tx.get("transaction", "").split("|")
+                        if len(data) >= 2:
+                            pid = data[0]
+                            salary = float(data[1]) / 1000000
+                            player = player_names.get(pid, f"Player #{pid}")
+                            msg = f"💰 Auction Win! {team} won {player} for ${salary:.1f}M\n{'-' * 40}"
+                            await channel.send(msg)
+
+                    elif t_type == "free_agent":
+                        transaction = tx.get("transaction", "")
+                        adds = re.findall(r"\|(\d+)", transaction)
+                        drops = re.findall(r"(\d+),\|", transaction)
+
+                        for pid in drops:
+                            player = player_names.get(pid, f"Player #{pid}")
+                            await channel.send(f"🔴 Add/Drop Alert ({timestamp}): {team} released {player}\n{'-' * 40}")
+                        for pid in adds:
+                            player = player_names.get(pid, f"Player #{pid}")
+                            await channel.send(f"🟢 Add/Drop Alert ({timestamp}): {team} signed {player}\n{'-' * 40}")
+
+                    elif t_type == "taxi":
+                        promoted = tx.get("promoted", "").strip(",").split(",")
+                        demoted = tx.get("demoted", "").strip(",").split(",")
+                        for pid in promoted:
+                            if pid:
+                                player = player_names.get(pid, f"Player #{pid}")
+                                await channel.send(f"🛫 Taxi Move: {team} promoted {player} from taxi\n{'-' * 40}")
+                        for pid in demoted:
+                            if pid:
+                                player = player_names.get(pid, f"Player #{pid}")
+                                await channel.send(f"🛬 Taxi Move: {team} demoted {player} to taxi\n{'-' * 40}")
+
+                    elif t_type == "ir":
+                        act = tx.get("activated", "").strip(",")
+                        deact = tx.get("deactivated", "").strip(",")
+                        if act:
+                            player = player_names.get(act, f"Player #{act}")
+                            await channel.send(f"🏥 IR Alert ({timestamp}): {team} activated {player} from IR\n{'-' * 40}")
+                        elif deact:
+                            player = player_names.get(deact, f"Player #{deact}")
+                            await channel.send(f"🏥 IR Alert ({timestamp}): {team} moved {player} to IR\n{'-' * 40}")
+
+                    elif t_type == "trade":
+                        sent = tx.get("franchise1_gave_up", "").split(",")
+                        received = tx.get("franchise2_gave_up", "").split(",")
+                        other_id = tx.get("franchise2")
+                        other_team = franchise_names.get(other_id, f"Franchise {other_id}")
+                        note = tx.get("comments", "")
+
+                        msg1 = f"🔄 Trade Alert ({timestamp})\n{team} traded: {', '.join(format_item(i) for i in sent if i)}\n{other_team}  traded: {', '.join(format_item(i) for i in received if i)}"
+                        await channel.send(msg1 + "\n" + "-" * 40)
+
+                        if note:
+                            msg2 = f"🔄 Trade Alert ({timestamp})\n{team} traded: {', '.join(format_item(i) for i in received if i)}\n{other_team}  traded: {', '.join(format_item(i) for i in sent if i)}\nNote: {note}"
+                            await channel.send(msg2 + "\n" + "-" * 40)
+
+        await asyncio.sleep(TRANSACTION_CHECK_INTERVAL)
 
 @bot.event
 async def on_ready():
     print(f"✅ Logged in as {bot.user}")
     await load_franchises()
     await load_players()
-
     bot.loop.create_task(fetch_and_post_draft_updates())
     bot.loop.create_task(fetch_and_post_transactions())
 
