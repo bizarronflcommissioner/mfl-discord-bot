@@ -140,6 +140,32 @@ async def fetch_all_transactions():
                     if offer_msg:
                         lines.append(f"Optional Message: {offer_msg}")
                     transactions.append("\n".join(lines))
+
+                elif tx_type == "FREE_AGENT":
+                    player_id = next((p.strip() for p in raw_tx.replace("|", ",").split(",") if p.strip().isdigit()), None)
+                    if player_id:
+                        is_add = not raw_tx.startswith("|")
+                        action = "signed" if is_add else "released"
+                        emoji = "🟢" if is_add else "🔴"
+                        player = player_names.get(player_id, f"Player #{player_id}")
+                        transactions.append(f"{emoji} **Add/Drop Alert ({timestamp})**: {team_name} {action} {player}")
+
+                elif tx_type == "AUCTION_WON":
+                    parts = raw_tx.split("|")
+                    if len(parts) >= 2:
+                        player_id, bid = parts[0], parts[1]
+                        bid_amt = float(bid) / 1_000_000
+                        player = player_names.get(player_id, f"Player #{player_id}")
+                        transactions.append(f"💵 **Auction Win ({timestamp})**: {team_name} won {player} for ${bid_amt}m")
+
+                elif tx_type == "TAXI":
+                    promo = ", ".join(player_names.get(p, f"Player #{p}") for p in tx.get("promoted", "").split(",") if p)
+                    demo = ", ".join(player_names.get(p, f"Player #{p}") for p in tx.get("demoted", "").split(",") if p)
+                    move = []
+                    if promo: move.append(f"promoted: {promo}")
+                    if demo: move.append(f"demoted: {demo}")
+                    transactions.append(f"🚌 **Taxi Move ({timestamp})**: {team_name} " + " | ".join(move))
+
             return transactions
 
 async def fetch_and_post_draft_updates(channel):
@@ -179,6 +205,7 @@ async def transaction_loop():
     while not bot.is_closed():
         print("🔁 Running draft update loop...")
         await fetch_and_post_draft_updates(draft_channel)
+        print("🧾 Checking for new transactions...")
         txs = await fetch_all_transactions()
         for msg in txs:
             await tx_channel.send(msg + "\n" + "-" * 40)
