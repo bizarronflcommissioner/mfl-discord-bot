@@ -28,7 +28,6 @@ franchise_names = {}
 player_names = {}
 posted_transactions = set()
 posted_picks = set()
-posted_ir = set()
 draft_announced = False
 notified_users = set()
 
@@ -113,7 +112,6 @@ async def fetch_and_post_draft_updates():
         return
 
     while not bot.is_closed():
-        print("🔁 Running draft update loop...")
         url = f"https://www43.myfantasyleague.com/{SEASON_YEAR}/export?TYPE=draftResults&L={LEAGUE_ID}&JSON=1"
         async with aiohttp.ClientSession() as session:
             async with session.get(url) as resp:
@@ -154,7 +152,6 @@ async def fetch_and_post_transactions():
         return
 
     while not bot.is_closed():
-        print("🧾 Checking for new transactions...")
         url = f"https://www43.myfantasyleague.com/{SEASON_YEAR}/export?TYPE=transactions&L={LEAGUE_ID}&JSON=1"
         async with aiohttp.ClientSession() as session:
             async with session.get(url) as resp:
@@ -162,7 +159,6 @@ async def fetch_and_post_transactions():
                 txns = data.get("transactions", {}).get("transaction", [])
                 if isinstance(txns, dict):
                     txns = [txns]
-                print(f"📦 Found {len(txns)} transactions")
 
                 for tx in txns:
                     tx_id = tx.get("timestamp")
@@ -173,7 +169,6 @@ async def fetch_and_post_transactions():
                     t_type = tx.get("type")
                     f_id = tx.get("franchise", "0000")
                     team = franchise_names.get(f_id, f"Franchise {f_id}")
-                    print(f"🔍 Processing transaction: {t_type} | {team}")
 
                     try:
                         if t_type == "auction":
@@ -217,14 +212,6 @@ async def fetch_and_post_transactions():
                                 msg = f"🏥 **IR Transaction:** {team} made an IR adjustment"
                             await txn_channel.send(msg)
 
-                        elif t_type in ["message", "news"]:
-                            subject = tx.get("subject", "League News")
-                            notes = tx.get("notes", "").strip()
-                            msg = f"🗞 **{subject}**\n{notes or '*No details provided.*'}"
-                            await txn_channel.send(msg)
-
-                        else:
-                            print(f"⚠️ Unhandled transaction type: {t_type} -> {tx}")
                     except Exception as e:
                         print(f"❌ Error processing transaction: {tx} | {e}")
 
@@ -260,12 +247,6 @@ async def on_ready():
     print(f"✅ Logged in as {bot.user}")
     await load_franchises()
     await load_players()
-
-    draft_channel = bot.get_channel(DRAFT_CHANNEL_ID)
-    txn_channel = bot.get_channel(CHANNEL_ID)
-
-    print(f"📢 Draft Channel: {draft_channel} ({DRAFT_CHANNEL_ID})")
-    print(f"📢 Transaction Channel: {txn_channel} ({CHANNEL_ID})")
 
     bot.loop.create_task(fetch_and_post_draft_updates())
     bot.loop.create_task(fetch_and_post_transactions())
