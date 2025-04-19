@@ -16,8 +16,8 @@ CHANNEL_ID = int(os.getenv("CHANNEL_ID"))  # Transactions channel
 DRAFT_CHANNEL_ID = int(os.getenv("DRAFT_CHANNEL_ID"))  # Draft channel
 LEAGUE_ID = os.getenv("LEAGUE_ID")
 SEASON_YEAR = 2025
-DRAFT_CHECK_INTERVAL = 300
-TRANSACTION_CHECK_INTERVAL = 300
+DRAFT_CHECK_INTERVAL = 60
+TRANSACTION_CHECK_INTERVAL = 60
 
 intents = discord.Intents.default()
 intents.members = True
