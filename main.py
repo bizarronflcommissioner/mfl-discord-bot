@@ -195,6 +195,35 @@ async def fetch_and_post_transactions():
                             msg = f"🔴 Add/Drop Alert ({timestamp}): {team} released {player}\n{'-' * 40}"
                             await txn_channel.send(msg)
 
+                        elif t_type == "ir":
+                            act = tx.get("activated", "").strip(",")
+                            deact = tx.get("deactivated", "").strip(",")
+                            if act:
+                                player = player_names.get(act, f"Player #{act}")
+                                msg = f"🏥 IR Alert ({timestamp}): {team} activated {player} from IR\n{'-' * 40}"
+                            elif deact:
+                                player = player_names.get(deact, f"Player #{deact}")
+                                msg = f"🏥 IR Alert ({timestamp}): {team} moved {player} to IR\n{'-' * 40}"
+                            else:
+                                msg = f"🏥 IR Alert ({timestamp}): {team} made an IR move\n{'-' * 40}"
+                            await txn_channel.send(msg)
+
+                        elif t_type == "taxi":
+                            promoted = tx.get("promoted", "").strip(",").split(",")
+                            demoted = tx.get("demoted", "").strip(",").split(",")
+
+                            for pid in promoted:
+                                if pid:
+                                    player = player_names.get(pid, f"Player #{pid}")
+                                    msg = f"🚕 Taxi Alert ({timestamp}): {team} promoted {player} from taxi\n{'-' * 40}"
+                                    await txn_channel.send(msg)
+
+                            for pid in demoted:
+                                if pid:
+                                    player = player_names.get(pid, f"Player #{pid}")
+                                    msg = f"🚕 Taxi Alert ({timestamp}): {team} demoted {player} to taxi\n{'-' * 40}"
+                                    await txn_channel.send(msg)
+
                         elif t_type == "trade":
                             sent = tx.get("franchise1_gave_up", "").split(",")
                             received = tx.get("franchise2_gave_up", "").split(",")
