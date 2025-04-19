@@ -188,6 +188,15 @@ async def reloadusers(ctx):
         await ctx.send("🔁 User mapping reloaded from file.")
     except Exception as e:
         await ctx.send(f"❌ Failed to reload user map: {e}")
+        @bot.command(name="debugenv")
+async def debugenv(ctx):
+    await ctx.send(
+        f"**Environment Values:**\n"
+        f"LEAGUE_ID: `{LEAGUE_ID}`\n"
+        f"CHANNEL_ID: `{CHANNEL_ID}`\n"
+        f"DRAFT_CHANNEL_ID: `{DRAFT_CHANNEL_ID}`\n"
+        f"DISCORD_TOKEN Loaded: `{bool(DISCORD_TOKEN)}`"
+    )
 
 @bot.event
 async def on_ready():
