@@ -120,6 +120,18 @@ async def load_players():
                 if pid:
                     player_names[pid] = name
 
+@bot.command(name="franchises")
+async def list_franchises(ctx):
+    if not franchise_names:
+        await ctx.send("No franchise data loaded.")
+        return
+
+    lines = [f"{fid}: {name}" for fid, name in franchise_names.items()]
+    chunks = [lines[i:i + 30] for i in range(0, len(lines), 30)]  # Discord message limit workaround
+
+    for chunk in chunks:
+        await ctx.send("**Franchise IDs:**\n" + "\n".join(chunk))
+
 @bot.event
 async def on_ready():
     print(f"✅ Logged in as {bot.user}")
