@@ -130,6 +130,21 @@ async def fetch_and_post_draft_updates(channel):
                 on_deck_pick = picks[i+2] if i+2 < len(picks) else None
                 await channel.send(format_draft_pick_message(pick, next_pick, on_deck_pick))
 
+async def transaction_loop():
+    await bot.wait_until_ready()
+    draft_channel = bot.get_channel(DRAFT_CHANNEL_ID)
+    if not draft_channel:
+        print("❌ Could not find the draft channel.")
+        return
+
+    await load_franchises()
+    await load_players()
+
+    while not bot.is_closed():
+        print("🔁 Running draft update loop...")
+        await fetch_and_post_draft_updates(draft_channel)
+        await asyncio.sleep(DRAFT_CHECK_INTERVAL)
+
 @bot.command(name="listusers")
 async def listusers(ctx):
     embed = discord.Embed(title="📋 MFL Franchise → Discord User Links", color=discord.Color.blue())
@@ -145,3 +160,10 @@ async def listusers(ctx):
             count = 0
     if count > 0:
         await ctx.send(embed=embed)
+
+@bot.event
+async def on_ready():
+    print(f"✅ Logged in as {bot.user}")
+    bot.loop.create_task(transaction_loop())
+
+bot.run(DISCORD_TOKEN)
