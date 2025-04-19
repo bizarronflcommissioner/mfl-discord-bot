@@ -16,7 +16,8 @@ CHANNEL_ID = int(os.getenv("CHANNEL_ID"))  # Transactions channel
 DRAFT_CHANNEL_ID = int(os.getenv("DRAFT_CHANNEL_ID"))  # Draft channel
 LEAGUE_ID = os.getenv("LEAGUE_ID")
 SEASON_YEAR = 2025
-DRAFT_CHECK_INTERVAL = 300
+DRAFT_CHECK_INTERVAL = 60
+TRANSACTION_CHECK_INTERVAL = 60
 
 intents = discord.Intents.default()
 intents.members = True
@@ -30,7 +31,6 @@ posted_picks = set()
 posted_ir = set()
 draft_announced = False
 
-# Load franchise to Discord user ID map
 with open("user_map.json", "r") as f:
     user_map = json.load(f)
 
@@ -105,128 +105,118 @@ async def load_players():
                 if pid:
                     player_names[pid] = name
 
-async def fetch_all_transactions():
-    url = f"https://www43.myfantasyleague.com/{SEASON_YEAR}/export?TYPE=transactions&L={LEAGUE_ID}&TRANS_TYPE=ALL"
-    async with aiohttp.ClientSession() as session:
-        async with session.get(url) as resp:
-            if resp.status != 200:
-                return []
-            xml_data = await resp.text()
-            root = ET.fromstring(xml_data)
-            transactions = []
-            for tx in root.findall("transaction"):
-                tx_id = tx.get("timestamp")
-                if tx_id in posted_transactions:
-                    continue
-                posted_transactions.add(tx_id)
-                timestamp = datetime.fromtimestamp(int(tx_id)).strftime('%b %d, %Y %I:%M %p')
-                tx_type = tx.get("type")
-                team = tx.get("franchise")
-                team_name = franchise_names.get(team, f"Team {team}")
-                raw_tx = tx.get("transaction", "")
-
-                if tx_type == "TRADE":
-                    team1 = tx.get("franchise")
-                    team2 = tx.get("franchise2")
-                    t1_items = [format_item(i) for i in tx.get("franchise1_gave_up", "").strip(",").split(",") if i]
-                    t2_items = [format_item(i) for i in tx.get("franchise2_gave_up", "").strip(",").split(",") if i]
-                    lines = [f"🔄 **Trade Alert ({timestamp})**",
-                             f"{franchise_names.get(team1, team1)} traded: {', '.join(t1_items)}",
-                             f"{franchise_names.get(team2, team2)} traded: {', '.join(t2_items)}"]
-                    note = tx.get("comments", "").strip()
-                    offer_msg = tx.get("message", "").strip()
-                    if note:
-                        lines.append(f"Note: {note}")
-                    if offer_msg:
-                        lines.append(f"Optional Message: {offer_msg}")
-                    transactions.append("\n".join(lines))
-
-                elif tx_type == "FREE_AGENT":
-                    player_id = next((p.strip() for p in raw_tx.replace("|", ",").split(",") if p.strip().isdigit()), None)
-                    if player_id:
-                        is_add = not raw_tx.startswith("|")
-                        action = "signed" if is_add else "released"
-                        emoji = "🟢" if is_add else "🔴"
-                        player = player_names.get(player_id, f"Player #{player_id}")
-                        transactions.append(f"{emoji} **Add/Drop Alert ({timestamp})**: {team_name} {action} {player}")
-
-                elif tx_type == "AUCTION_WON":
-                    parts = raw_tx.split("|")
-                    if len(parts) >= 2:
-                        player_id, bid = parts[0], parts[1]
-                        bid_amt = float(bid) / 1_000_000
-                        player = player_names.get(player_id, f"Player #{player_id}")
-                        transactions.append(f"💵 **Auction Win ({timestamp})**: {team_name} won {player} for ${bid_amt}m")
-
-                elif tx_type == "TAXI":
-                    promo = ", ".join(player_names.get(p, f"Player #{p}") for p in tx.get("promoted", "").split(",") if p)
-                    demo = ", ".join(player_names.get(p, f"Player #{p}") for p in tx.get("demoted", "").split(",") if p)
-                    move = []
-                    if promo: move.append(f"promoted: {promo}")
-                    if demo: move.append(f"demoted: {demo}")
-                    transactions.append(f"🚌 **Taxi Move ({timestamp})**: {team_name} " + " | ".join(move))
-
-            return transactions
-
 async def fetch_and_post_draft_updates(channel):
     global draft_announced
     url = f"https://www43.myfantasyleague.com/{SEASON_YEAR}/export?TYPE=draftResults&L={LEAGUE_ID}&JSON=1"
     async with aiohttp.ClientSession() as session:
         async with session.get(url) as resp:
             if resp.status != 200:
+                print(f"❌ Draft fetch failed: {resp.status}")
                 return
 
             data = await resp.json()
             draft_unit = data.get("draftResults", {}).get("draftUnit", {})
             picks = draft_unit.get("draftPick", [])
 
-            if not draft_announced and picks:
+            if not picks:
+                return
+
+            if not draft_announced:
                 draft_announced = True
-                await channel.send(f"\U0001F3C8 **The draft has begun!**\n{'-' * 40}")
+                await channel.send("🏈 **The draft has begun!**\n" + "-" * 40)
 
             for i, pick in enumerate(picks):
                 ts = pick.get("timestamp")
                 if not ts or ts in posted_picks:
                     continue
+
                 posted_picks.add(ts)
                 next_pick = picks[i+1] if i+1 < len(picks) else None
                 on_deck_pick = picks[i+2] if i+2 < len(picks) else None
-                await channel.send(format_draft_pick_message(pick, next_pick, on_deck_pick))
+
+                msg = format_draft_pick_message(pick, next_pick, on_deck_pick)
+                await channel.send(msg)
+
+async def fetch_and_post_transactions(channel):
+    print("🧾 Checking for new transactions...")
+    url = f"https://www43.myfantasyleague.com/{SEASON_YEAR}/export?TYPE=transactions&L={LEAGUE_ID}&TRANS_TYPE=ALL"
+    async with aiohttp.ClientSession() as session:
+        async with session.get(url) as resp:
+            xml_data = await resp.text()
+            root = ET.fromstring(xml_data)
+            for tx in root.findall("transaction"):
+                tx_id = tx.get("timestamp")
+                if tx_id in posted_transactions:
+                    continue
+                posted_transactions.add(tx_id)
+                tx_type = tx.get("type")
+                team = tx.get("franchise")
+                timestamp = datetime.fromtimestamp(int(tx_id)).strftime('%b %d, %Y %I:%M %p')
+                team_name = franchise_names.get(team, f"Team {team}")
+
+                if tx_type == "FREE_AGENT":
+                    raw_tx = tx.get("transaction", "")
+                    player_id = next((p.strip() for p in raw_tx.replace("|", ",").split(",") if p.strip().isdigit()), None)
+                    if player_id:
+                        is_add = not raw_tx.startswith("|")
+                        action = "signed" if is_add else "released"
+                        emoji = "🟢" if is_add else "🔴"
+                        player = player_names.get(player_id, f"Player #{player_id}")
+                        await channel.send(f"{emoji} **Add/Drop Alert ({timestamp})**: {team_name} {action} {player}\n" + "-" * 40)
+
+                elif tx_type == "TRADE":
+                    team2 = tx.get("franchise2")
+                    t1_items = [format_item(i) for i in tx.get("franchise1_gave_up", "").strip(",").split(",") if i]
+                    t2_items = [format_item(i) for i in tx.get("franchise2_gave_up", "").strip(",").split(",") if i]
+                    note = tx.get("comments", "").strip()
+                    offer_msg = tx.get("message", "").strip()
+                    lines = [f"🔄 **Trade Alert ({timestamp})**",
+                             f"{franchise_names.get(team, team)} traded: {', '.join(t1_items)}",
+                             f"{franchise_names.get(team2, team2)} traded: {', '.join(t2_items)}"]
+                    if note:
+                        lines.append(f"Note: {note}")
+                    if offer_msg:
+                        lines.append(f"Optional Message: {offer_msg}")
+                    await channel.send("\n".join(lines) + "\n" + "-" * 40)
 
 async def transaction_loop():
     await bot.wait_until_ready()
-    tx_channel = bot.get_channel(CHANNEL_ID)
     draft_channel = bot.get_channel(DRAFT_CHANNEL_ID)
-    if not tx_channel or not draft_channel:
-        print("❌ Could not find one or more channels.")
+    tx_channel = bot.get_channel(CHANNEL_ID)
+    if not draft_channel or not tx_channel:
+        print("❌ Channel not found.")
         return
     await load_franchises()
     await load_players()
     while not bot.is_closed():
         print("🔁 Running draft update loop...")
         await fetch_and_post_draft_updates(draft_channel)
-        print("🧾 Checking for new transactions...")
-        txs = await fetch_all_transactions()
-        for msg in txs:
-            await tx_channel.send(msg + "\n" + "-" * 40)
+        await fetch_and_post_transactions(tx_channel)
         await asyncio.sleep(DRAFT_CHECK_INTERVAL)
+
+@bot.command(name="setuser")
+async def setuser(ctx, franchise_id: str, user: discord.Member):
+    franchise_id = franchise_id.zfill(4)
+    if franchise_id not in franchise_names:
+        await ctx.send(f"❌ Franchise ID `{franchise_id}` not found.")
+        return
+    user_map[franchise_id] = str(user.id)
+    try:
+        with open("user_map.json", "w") as f:
+            json.dump(user_map, f, indent=2)
+        await ctx.send(f"✅ Linked {franchise_names[franchise_id]} ({franchise_id}) to {user.mention}")
+    except Exception as e:
+        await ctx.send(f"❌ Failed to save user map: {e}")
 
 @bot.command(name="listusers")
 async def listusers(ctx):
-    if not franchise_names:
-        await load_franchises()
-    embed = discord.Embed(title="📋 MFL Franchise → Discord User Links", color=discord.Color.blue())
-    count = 0
-    for fid, name in franchise_names.items():
-        discord_id = user_map.get(fid)
-        mention = f"<@{discord_id}>" if discord_id else "❌ Not Set"
-        embed.add_field(name=f"{name} ({fid})", value=mention, inline=False)
-        count += 1
-        if count == 25:
-            await ctx.send(embed=embed)
-            embed = discord.Embed(title="📋 Continued", color=discord.Color.blue())
-            count = 0
-    if count > 0:
+    chunks = list(franchise_names.items())
+    for i in range(0, len(chunks), 25):
+        embed = discord.Embed(title="📋 MFL Franchise → Discord User Links", color=discord.Color.blue())
+        for fid, name in chunks[i:i+25]:
+            discord_id = user_map.get(fid)
+            mention = f"<@{discord_id}>" if discord_id else "❌ Not Set"
+            embed.add_field(name=f"{name} ({fid})", value=mention, inline=False)
         await ctx.send(embed=embed)
 
 @bot.event
