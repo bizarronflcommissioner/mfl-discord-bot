@@ -193,5 +193,6 @@ async def reloadusers(ctx):
 async def on_ready():
     print(f"✅ Logged in as {bot.user}")
     bot.loop.create_task(transaction_loop())
-
+print("DISCORD_TOKEN loaded:", bool(DISCORD_TOKEN))
+print("DISCORD_TOKEN preview:", DISCORD_TOKEN[:10] + "..." if DISCORD_TOKEN else "None")
 bot.run(DISCORD_TOKEN)
