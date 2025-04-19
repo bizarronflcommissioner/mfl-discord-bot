@@ -217,6 +217,12 @@ async def fetch_and_post_transactions():
                                 msg = f"🏥 **IR Transaction:** {team} made an IR adjustment"
                             await txn_channel.send(msg)
 
+                        elif t_type in ["message", "news"]:
+                            subject = tx.get("subject", "League News")
+                            notes = tx.get("notes", "").strip()
+                            msg = f"🗞 **{subject}**\n{notes or '*No details provided.*'}"
+                            await txn_channel.send(msg)
+
                         else:
                             print(f"⚠️ Unhandled transaction type: {t_type} -> {tx}")
                     except Exception as e:
