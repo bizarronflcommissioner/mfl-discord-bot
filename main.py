@@ -148,7 +148,6 @@ async def fetch_and_post_draft_updates():
         await asyncio.sleep(DRAFT_CHECK_INTERVAL)
 
 async def fetch_and_post_transactions():
-    await bot.wait_until_ready()
     txn_channel = bot.get_channel(CHANNEL_ID)
     if not txn_channel:
         print("❌ Could not find the transactions channel.")
@@ -162,8 +161,7 @@ async def fetch_and_post_transactions():
                 data = await resp.json()
                 txns = data.get("transactions", {}).get("transaction", [])
                 if isinstance(txns, dict):
-                    txns = [txns]  # Normalize single transaction case
-
+                    txns = [txns]
                 print(f"📦 Found {len(txns)} transactions")
 
                 for tx in txns:
@@ -186,8 +184,11 @@ async def fetch_and_post_transactions():
                             await txn_channel.send(msg)
 
                         elif t_type == "trade":
-                            items = tx.get("comments", "").split(";;")
-                            msg = f"🔁 **Trade Alert!** {team} traded: " + ", ".join(format_item(i) for i in items)
+                            sent = tx.get("franchise1_gave_up", "").split(",")
+                            received = tx.get("franchise2_gave_up", "").split(",")
+                            other = tx.get("franchise2")
+                            other_team = franchise_names.get(other, f"Franchise {other}")
+                            msg = f"🔁 **Trade Completed!** {team} and {other_team}\n{team} gave up: {', '.join(format_item(i) for i in sent if i)}\n{other_team} gave up: {', '.join(format_item(i) for i in received if i)}"
                             await txn_channel.send(msg)
 
                         elif t_type in ["add", "drop"]:
@@ -204,9 +205,16 @@ async def fetch_and_post_transactions():
                             await txn_channel.send(msg)
 
                         elif t_type == "ir":
-                            player_id = tx.get("player")
-                            player = player_names.get(player_id, f"Player #{player_id}")
-                            msg = f"🏥 **IR Move:** {team} moved {player} to IR"
+                            act = tx.get("activated", "").strip(",")
+                            deact = tx.get("deactivated", "").strip(",")
+                            if act:
+                                player = player_names.get(act, f"Player #{act}")
+                                msg = f"🏥 **IR Activation:** {team} activated {player} from IR"
+                            elif deact:
+                                player = player_names.get(deact, f"Player #{deact}")
+                                msg = f"🏥 **IR Move:** {team} moved {player} to IR"
+                            else:
+                                msg = f"🏥 **IR Transaction:** {team} made an IR adjustment"
                             await txn_channel.send(msg)
 
                         else:
