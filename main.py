@@ -20,6 +20,7 @@ DRAFT_CHECK_INTERVAL = 300
 
 intents = discord.Intents.default()
 intents.members = True
+intents.message_content = True  # 👈 Add this line
 bot = commands.Bot(command_prefix="!", intents=intents)
 
 franchise_names = {}
