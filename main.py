@@ -3,7 +3,7 @@ from discord.ext import commands
 import asyncio
 import aiohttp
 import xml.etree.ElementTree as ET
-from datetime import datetime
+from datetime import datetime, timezone
 from dotenv import load_dotenv
 import os
 import re
@@ -138,8 +138,9 @@ async def fetch_and_post_draft_updates():
 async def fetch_and_post_transactions():
     channel = bot.get_channel(CHANNEL_ID)
     if not channel:
-        print("❌ Could not find the transactions channel.")
+        print(f"❌ Could not find transactions channel ID: {CHANNEL_ID}")
         return
+    print("🔁 Running transaction update loop...")
 
     while not bot.is_closed():
         url = f"https://www43.myfantasyleague.com/{SEASON_YEAR}/export?TYPE=transactions&L={LEAGUE_ID}&JSON=1"
@@ -158,7 +159,7 @@ async def fetch_and_post_transactions():
                     t_type = tx.get("type", "").lower()
                     f_id = tx.get("franchise", "0000")
                     team = franchise_names.get(f_id, f"Franchise {f_id}")
-                    timestamp = datetime.utcfromtimestamp(int(tx_id)).strftime("%b %d, %Y %I:%M %p")
+                    timestamp = datetime.fromtimestamp(int(tx_id), timezone.utc).strftime("%b %d, %Y %I:%M %p")
 
                     if t_type == "auction_won":
                         data = tx.get("transaction", "").split("|")
@@ -187,11 +188,11 @@ async def fetch_and_post_transactions():
                         for pid in promoted:
                             if pid:
                                 player = player_names.get(pid, f"Player #{pid}")
-                                await channel.send(f"🛫 Taxi Move: {team} promoted {player} from taxi\n{'-' * 40}")
+                                await channel.send(f"🛫 Taxi Move ({timestamp}): {team} promoted {player} from taxi\n{'-' * 40}")
                         for pid in demoted:
                             if pid:
                                 player = player_names.get(pid, f"Player #{pid}")
-                                await channel.send(f"🛬 Taxi Move: {team} demoted {player} to taxi\n{'-' * 40}")
+                                await channel.send(f"🛬 Taxi Move ({timestamp}): {team} demoted {player} to taxi\n{'-' * 40}")
 
                     elif t_type == "ir":
                         act = tx.get("activated", "").strip(",")
