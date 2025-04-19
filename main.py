@@ -41,37 +41,26 @@ def format_item(item):
     dp_match = re.match(r"DP_(\d+)_(\d+)", item)
     if dp_match:
         rnd, pick = dp_match.groups()
-        try:
-            round_num = int(rnd) + 1
-            pick_num = int(pick) + 1
-            return f"{SEASON_YEAR} {ordinal(round_num)} Round Pick (Pick {pick_num})"
-        except:
-            return f"{SEASON_YEAR} Draft Pick Round {rnd}, Pick {pick}"
+        round_num = int(rnd) + 1
+        pick_num = int(pick) + 1
+        return f"{SEASON_YEAR} {ordinal(round_num)} Round Pick (Pick {pick_num})"
 
     fp_match = re.match(r"FP_(\d{4})_(\d{4})_(\d+)", item)
     if fp_match:
         team, year, rnd = fp_match.groups()
-        try:
-            round_num = int(rnd)
-            team_name = franchise_names.get(team, f"Team {team}")
-            return f"{year} {ordinal(round_num)} Round Pick (from {team_name})"
-        except:
-            return f"{year} Draft Pick Round {rnd} (from {team_name})"
+        round_num = int(rnd)
+        team_name = franchise_names.get(team, f"Team {team}")
+        return f"{year} {ordinal(round_num)} Round Pick (from {team_name})"
 
-    if item.isdigit():
-        return player_names.get(item, f"Player #{item}")
-
-    return item
+    return player_names.get(item, f"Player #{item}")
 
 def format_draft_pick_message(pick, next_pick=None, on_deck_pick=None):
     franchise_id = pick.get("franchise")
     player_id = pick.get("player")
     round_num = pick.get("round")
     pick_num = pick.get("pick")
-
     team = franchise_names.get(franchise_id, f"Franchise {franchise_id}")
     player = player_names.get(player_id, f"Player #{player_id}")
-
     msg = f"\U0001F389 **Draft Pick Made!**\n{team} selected {player} (Round {round_num}, Pick {pick_num})"
 
     if next_pick:
@@ -106,9 +95,48 @@ async def load_players():
                     player_names[pid] = name
 
 async def fetch_and_post_draft_updates():
-    pass  # This function is left intentionally blank to avoid conflict during patch
+    draft_channel = bot.get_channel(DRAFT_CHANNEL_ID)
+    if not draft_channel:
+        print("❌ Could not find the draft channel.")
+        return
+
+    while not bot.is_closed():
+        print("🔁 Running draft update loop...")
+        url = f"https://www43.myfantasyleague.com/{SEASON_YEAR}/export?TYPE=draftResults&L={LEAGUE_ID}&JSON=1"
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url) as resp:
+                if resp.status != 200:
+                    return
+                data = await resp.json()
+                draft_unit = data.get("draftResults", {}).get("draftUnit", {})
+                picks = draft_unit.get("draftPick", [])
+
+                global draft_announced
+                if not draft_announced and picks:
+                    draft_announced = True
+                    await draft_channel.send(f"\U0001F3C8 **The draft has begun!**\n{'-' * 40}")
+
+                for i, pick in enumerate(picks):
+                    ts = pick.get("timestamp")
+                    if not ts or ts in posted_picks:
+                        continue
+                    posted_picks.add(ts)
+                    next_pick = picks[i+1] if i+1 < len(picks) else None
+                    on_deck_pick = picks[i+2] if i+2 < len(picks) else None
+                    await draft_channel.send(format_draft_pick_message(pick, next_pick, on_deck_pick))
+
+                    if next_pick:
+                        next_id = next_pick.get("franchise")
+                        if next_id in user_map and next_id not in notified_users:
+                            user = await bot.fetch_user(int(user_map[next_id]))
+                            if user:
+                                await user.send(f"⏰ You're on the clock in the draft for {franchise_names.get(next_id)}!")
+                                notified_users.add(next_id)
+
+        await asyncio.sleep(DRAFT_CHECK_INTERVAL)
 
 async def fetch_and_post_transactions():
+    print("🧾 Transaction loop running...")
     txn_channel = bot.get_channel(CHANNEL_ID)
     if not txn_channel:
         print("❌ Could not find the transactions channel.")
@@ -122,95 +150,77 @@ async def fetch_and_post_transactions():
                 txns = data.get("transactions", {}).get("transaction", [])
                 if isinstance(txns, dict):
                     txns = [txns]
+                print(f"📦 Found {len(txns)} transactions")
 
                 for tx in txns:
-                    tx_id = tx.get("timestamp")
-                    if not tx_id or tx_id in posted_transactions:
+                    ts = tx.get("timestamp")
+                    if not ts or ts in posted_transactions:
                         continue
-                    posted_transactions.add(tx_id)
+                    posted_transactions.add(ts)
 
-                    t_type = tx.get("type", "").lower()
                     f_id = tx.get("franchise", "0000")
                     team = franchise_names.get(f_id, f"Franchise {f_id}")
-                    timestamp = datetime.fromtimestamp(int(tx_id)).strftime("%b %d, %Y %I:%M %p")
+                    t_type = tx.get("type")
 
                     try:
-                        if t_type == "auction_won":
-                            auction_info = tx.get("transaction", "").split("|")
-                            if len(auction_info) >= 2:
-                                pid = auction_info[0]
-                                salary = float(auction_info[1]) / 1000000
-                                player = player_names.get(pid, f"Player #{pid}")
-                                msg = f"💰 Auction Win ({timestamp}): {team} won {player} for ${salary:.2f}M\n{'-' * 40}"
-                                await txn_channel.send(msg)
-
-                        elif t_type == "free_agent":
-                            transaction_data = tx.get("transaction", "")
-                            adds = re.findall(r"\|(\d+)", transaction_data)
-                            drops = re.findall(r"(\d+),\|", transaction_data)
-
-                            for pid in adds:
-                                player = player_names.get(pid, f"Player #{pid}")
-                                msg = f"🟢 Add/Drop Alert ({timestamp}): {team} signed {player}\n{'-' * 40}"
-                                await txn_channel.send(msg)
-
-                            for pid in drops:
-                                player = player_names.get(pid, f"Player #{pid}")
-                                msg = f"🔴 Add/Drop Alert ({timestamp}): {team} released {player}\n{'-' * 40}"
-                                await txn_channel.send(msg)
-
-                        elif t_type == "add":
-                            player = player_names.get(tx.get("player"), f"Player #{tx.get('player')}")
-                            msg = f"🟢 Add/Drop Alert ({timestamp}): {team} signed {player}\n{'-' * 40}"
-                            await txn_channel.send(msg)
-
-                        elif t_type == "drop":
-                            player = player_names.get(tx.get("player"), f"Player #{tx.get('player')}")
-                            msg = f"🔴 Add/Drop Alert ({timestamp}): {team} released {player}\n{'-' * 40}"
-                            await txn_channel.send(msg)
-
-                        elif t_type == "ir":
-                            act = tx.get("activated", "").strip(",")
-                            deact = tx.get("deactivated", "").strip(",")
-                            if act:
-                                player = player_names.get(act, f"Player #{act}")
-                                msg = f"🏥 IR Alert ({timestamp}): {team} activated {player} from IR\n{'-' * 40}"
-                            elif deact:
-                                player = player_names.get(deact, f"Player #{deact}")
-                                msg = f"🏥 IR Alert ({timestamp}): {team} moved {player} to IR\n{'-' * 40}"
-                            else:
-                                msg = f"🏥 IR Alert ({timestamp}): {team} made an IR move\n{'-' * 40}"
-                            await txn_channel.send(msg)
-
-                        elif t_type == "taxi":
-                            promoted = tx.get("promoted", "").strip(",").split(",")
-                            demoted = tx.get("demoted", "").strip(",").split(",")
-
-                            for pid in promoted:
-                                if pid:
-                                    player = player_names.get(pid, f"Player #{pid}")
-                                    msg = f"🚕 Taxi Alert ({timestamp}): {team} promoted {player} from taxi\n{'-' * 40}"
-                                    await txn_channel.send(msg)
-
-                            for pid in demoted:
-                                if pid:
-                                    player = player_names.get(pid, f"Player #{pid}")
-                                    msg = f"🚕 Taxi Alert ({timestamp}): {team} demoted {player} to taxi\n{'-' * 40}"
-                                    await txn_channel.send(msg)
-
-                        elif t_type == "trade":
+                        if t_type == "trade":
                             sent = tx.get("franchise1_gave_up", "").split(",")
                             received = tx.get("franchise2_gave_up", "").split(",")
-                            other = tx.get("franchise2")
-                            other_team = franchise_names.get(other, f"Franchise {other}")
-                            note = tx.get("comments", "")
-
-                            msg1 = f"🔄 Trade Alert ({timestamp})\n{team} traded: {', '.join(format_item(i) for i in sent if i)}\n{other_team}  traded: {', '.join(format_item(i) for i in received if i)}"
-                            await txn_channel.send(msg1 + "\n" + "-" * 40)
-
+                            other_id = tx.get("franchise2")
+                            other_team = franchise_names.get(other_id, f"Franchise {other_id}")
+                            note = tx.get("comments")
+                            msg = f"🔄 Trade Alert ({datetime.utcfromtimestamp(int(ts)).strftime('%b %d, %Y %I:%M %p')})\n{team} traded: {', '.join(format_item(i) for i in sent if i)}\n{other_team}  traded: {', '.join(format_item(i) for i in received if i)}"
                             if note:
-                                msg2 = f"🔄 Trade Alert ({timestamp})\n{team} traded: {', '.join(format_item(i) for i in received if i)}\n{other_team}  traded: {', '.join(format_item(i) for i in sent if i)}\nNote: {note}"
-                                await txn_channel.send(msg2 + "\n" + "-" * 40)
+                                msg += f"\nNote: {note}"
+                            msg += "\n" + "-" * 40
+                            await txn_channel.send(msg)
+
+                        elif t_type == "FREE_AGENT":
+                            txn_string = tx.get("transaction", "")
+                            parts = txn_string.split("|")
+                            if len(parts) == 2:
+                                drop_id = parts[0].strip(",")
+                                add_id = parts[1].strip(",")
+                                if drop_id:
+                                    player = player_names.get(drop_id, f"Player #{drop_id}")
+                                    await txn_channel.send(f"🔴 Add/Drop Alert ({datetime.utcfromtimestamp(int(ts)).strftime('%b %d, %Y %I:%M %p')}): {team} released {player}\n{'-' * 40}")
+                                if add_id:
+                                    player = player_names.get(add_id, f"Player #{add_id}")
+                                    await txn_channel.send(f"🟢 Add/Drop Alert ({datetime.utcfromtimestamp(int(ts)).strftime('%b %d, %Y %I:%M %p')}): {team} signed {player}\n{'-' * 40}")
+
+                        elif t_type == "AUCTION_WON":
+                            parts = tx.get("transaction", "").split("|")
+                            if len(parts) >= 2:
+                                pid, price = parts[:2]
+                                player = player_names.get(pid, f"Player #{pid}")
+                                msg = f"💰 Auction Win! {team}  won {player} for ${float(price)/1000000:.1f}M\n{'-' * 40}"
+                                await txn_channel.send(msg)
+
+                        elif t_type == "TAXI":
+                            up = tx.get("promoted", "").strip(",")
+                            down = tx.get("demoted", "").strip(",")
+                            if up:
+                                player = player_names.get(up, f"Player #{up}")
+                                await txn_channel.send(f"🛫 Taxi Move: {team} promoted {player} from taxi\n{'-' * 40}")
+                            if down:
+                                player = player_names.get(down, f"Player #{down}")
+                                await txn_channel.send(f"🛬 Taxi Move: {team} demoted {player} to taxi\n{'-' * 40}")
+
+                        elif t_type == "IR":
+                            up = tx.get("activated", "").strip(",")
+                            down = tx.get("deactivated", "").strip(",")
+                            if up:
+                                player = player_names.get(up, f"Player #{up}")
+                                await txn_channel.send(f"🩼 IR Move: {team} activated {player} from IR\n{'-' * 40}")
+                            if down:
+                                player = player_names.get(down, f"Player #{down}")
+                                await txn_channel.send(f"🏥 IR Move: {team} moved {player} to IR\n{'-' * 40}")
+
+                        elif t_type == "AUCTION_INIT":
+                            pass  # no post
+
+                        else:
+                            print(f"⚠️ Unhandled transaction type: {t_type} -> {tx}")
 
                     except Exception as e:
                         print(f"❌ Error processing transaction: {tx} | {e}")
@@ -223,6 +233,7 @@ async def on_ready():
     await load_franchises()
     await load_players()
 
+    bot.loop.create_task(fetch_and_post_draft_updates())
     bot.loop.create_task(fetch_and_post_transactions())
 
 bot.run(DISCORD_TOKEN)
