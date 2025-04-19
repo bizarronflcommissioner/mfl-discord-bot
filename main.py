@@ -93,6 +93,14 @@ async def list_users(ctx):
         lines = [f"Franchise {fid}: <@{uid}>" for fid, uid in user_map.items() if uid.isdigit()]
         await ctx.send("\n".join(lines))
 
+@bot.command(name="vacantusers")
+async def vacant_users(ctx):
+    unassigned = [f"Franchise {fid}: {franchise_names.get(fid, 'Unknown')}" for fid in franchise_names if fid not in user_map]
+    if not unassigned:
+        await ctx.send("✅ All franchises are assigned to Discord users.")
+    else:
+        await ctx.send("❗ Vacant Franchises:\n" + "\n".join(unassigned))
+
 async def load_franchises():
     url = f"https://www43.myfantasyleague.com/{SEASON_YEAR}/export?TYPE=league&L={LEAGUE_ID}&JSON=1"
     async with aiohttp.ClientSession() as session:
