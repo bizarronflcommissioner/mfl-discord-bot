@@ -159,14 +159,22 @@ async def fetch_and_post_transactions():
         async with aiohttp.ClientSession() as session:
             async with session.get(url) as resp:
                 data = await resp.json()
-                for tx in data.get("transactions", {}).get("transaction", []):
+                txns = data.get("transactions", {}).get("transaction", [])
+                print(f"📦 Found {len(txns)} transactions")
+
+                for tx in txns:
                     tx_id = tx.get("timestamp")
-                    if tx_id in posted_transactions:
+                    if not tx_id or tx_id in posted_transactions:
                         continue
                     posted_transactions.add(tx_id)
+
                     t_type = tx.get("type")
                     f_id = tx.get("franchise")
                     team = franchise_names.get(f_id, f"Franchise {f_id}")
+
+                    if not t_type:
+                        print(f"⚠️ Skipping unknown transaction: {tx}")
+                        continue
 
                     if t_type == "auction":
                         player_id = tx.get("player")
@@ -180,7 +188,7 @@ async def fetch_and_post_transactions():
                         msg = f"🔁 **Trade Alert!** {team} traded: " + ", ".join(format_item(i) for i in items)
                         await txn_channel.send(msg)
 
-                    elif t_type == "add" or t_type == "drop":
+                    elif t_type in ["add", "drop"]:
                         player_id = tx.get("player")
                         action = "added" if t_type == "add" else "dropped"
                         player = player_names.get(player_id, f"Player #{player_id}")
