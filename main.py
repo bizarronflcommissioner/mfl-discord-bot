@@ -105,6 +105,9 @@ async def load_players():
                 if pid:
                     player_names[pid] = name
 
+async def fetch_and_post_draft_updates():
+    pass  # This function is left intentionally blank to avoid conflict during patch
+
 async def fetch_and_post_transactions():
     txn_channel = bot.get_channel(CHANNEL_ID)
     if not txn_channel:
@@ -132,7 +135,16 @@ async def fetch_and_post_transactions():
                     timestamp = datetime.fromtimestamp(int(tx_id)).strftime("%b %d, %Y %I:%M %p")
 
                     try:
-                        if t_type == "free_agent":
+                        if t_type == "auction_won":
+                            auction_info = tx.get("transaction", "").split("|")
+                            if len(auction_info) >= 2:
+                                pid = auction_info[0]
+                                salary = float(auction_info[1]) / 1000000
+                                player = player_names.get(pid, f"Player #{pid}")
+                                msg = f"💰 Auction Win ({timestamp}): {team} won {player} for ${salary:.2f}M\n{'-' * 40}"
+                                await txn_channel.send(msg)
+
+                        elif t_type == "free_agent":
                             transaction_data = tx.get("transaction", "")
                             adds = re.findall(r"\|(\d+)", transaction_data)
                             drops = re.findall(r"(\d+),\|", transaction_data)
@@ -145,15 +157,6 @@ async def fetch_and_post_transactions():
                             for pid in drops:
                                 player = player_names.get(pid, f"Player #{pid}")
                                 msg = f"🔴 Add/Drop Alert ({timestamp}): {team} released {player}\n{'-' * 40}"
-                                await txn_channel.send(msg)
-
-                        elif t_type == "auction_won":
-                            auction_info = tx.get("transaction", "").split("|")
-                            if len(auction_info) >= 2:
-                                pid = auction_info[0]
-                                salary = float(auction_info[1]) / 1000000
-                                player = player_names.get(pid, f"Player #{pid}")
-                                msg = f"💰 Auction Win! {team}  won {player} for ${salary:.1f}M\n{'-' * 40}"
                                 await txn_channel.send(msg)
 
                         elif t_type == "add":
