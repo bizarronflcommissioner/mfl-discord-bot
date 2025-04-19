@@ -107,7 +107,6 @@ async def load_players():
                     player_names[pid] = name
 
 async def fetch_and_post_draft_updates():
-    await bot.wait_until_ready()
     draft_channel = bot.get_channel(DRAFT_CHANNEL_ID)
     if not draft_channel:
         print("❌ Could not find the draft channel.")
@@ -149,9 +148,8 @@ async def fetch_and_post_draft_updates():
         await asyncio.sleep(DRAFT_CHECK_INTERVAL)
 
 async def fetch_and_post_transactions():
-    await bot.wait_until_ready()
-    channel = bot.get_channel(CHANNEL_ID)
-    if not channel:
+    txn_channel = bot.get_channel(CHANNEL_ID)
+    if not txn_channel:
         print("❌ Could not find the transactions channel.")
         return
 
@@ -169,12 +167,37 @@ async def fetch_and_post_transactions():
                     t_type = tx.get("type")
                     f_id = tx.get("franchise")
                     team = franchise_names.get(f_id, f"Franchise {f_id}")
+
                     if t_type == "auction":
                         player_id = tx.get("player")
                         amount = int(tx.get("amount", 0)) / 1000000.0
                         player = player_names.get(player_id, f"Player #{player_id}")
                         msg = f"💰 **Auction Win!** {team} won {player} for ${amount:.1f}M"
-                        await channel.send(msg)
+                        await txn_channel.send(msg)
+
+                    elif t_type == "trade":
+                        items = tx.get("comments", "").split(";;")
+                        msg = f"🔁 **Trade Alert!** {team} traded: " + ", ".join(format_item(i) for i in items)
+                        await txn_channel.send(msg)
+
+                    elif t_type == "add" or t_type == "drop":
+                        player_id = tx.get("player")
+                        action = "added" if t_type == "add" else "dropped"
+                        player = player_names.get(player_id, f"Player #{player_id}")
+                        msg = f"🔁 **Roster Move:** {team} {action} {player}"
+                        await txn_channel.send(msg)
+
+                    elif t_type == "waiver":
+                        player_id = tx.get("player")
+                        player = player_names.get(player_id, f"Player #{player_id}")
+                        msg = f"📥 **Waiver Claim:** {team} claimed {player}"
+                        await txn_channel.send(msg)
+
+                    elif t_type == "ir":
+                        player_id = tx.get("player")
+                        player = player_names.get(player_id, f"Player #{player_id}")
+                        msg = f"🏥 **IR Move:** {team} moved {player} to IR"
+                        await txn_channel.send(msg)
 
         await asyncio.sleep(TRANSACTION_CHECK_INTERVAL)
 
@@ -206,7 +229,6 @@ async def listusers(ctx):
 @bot.event
 async def on_ready():
     print(f"✅ Logged in as {bot.user}")
-
     await load_franchises()
     await load_players()
 
