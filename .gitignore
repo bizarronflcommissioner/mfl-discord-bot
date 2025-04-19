@@ -1,14 +1,27 @@
-# Ignore Python cache and environment files
+# Byte-compiled / optimized / DLL files
 __pycache__/
-*.pyc
-*.pyo
-*.pyd
+*.py[cod]
+*$py.class
+
+# Virtual environment
 venv/
 env/
 
-# Ignore dotenv files (local secrets)
+# dotenv - secrets file (NEVER push this)
 .env
 
 # OS-specific files
 .DS_Store
 Thumbs.db
+
+# Railway or deployment configs (optional, if sensitive)
+railway.json
+
+# VS Code config
+.vscode/
+
+# Logs
+*.log
+
+# Mac/Unix hidden files
+*.swp
