@@ -37,6 +37,8 @@ with open("user_map.json", "r") as f:
 def save_user_map():
     with open("user_map.json", "w") as f:
         json.dump(user_map, f, indent=4)
+    print("✅ user_map.json has been updated")
+
 
 def ordinal(n):
     return {1: "1st", 2: "2nd", 3: "3rd"}.get(n, f"{n}th")
@@ -78,6 +80,21 @@ def format_draft_pick_message(pick, next_pick=None, on_deck_pick=None):
         msg += f"\n\U0001F4CB On deck: {deck_team}"
 
     return msg + "\n" + "-" * 40
+
+async def fetch_with_retry(session, url, retries=3, delay=15):
+    for attempt in range(retries):
+        try:
+            async with session.get(url) as resp:
+                if resp.status == 200:
+                    return await resp.json()
+                else:
+                    print(f"⚠️ HTTP error {resp.status} on {url}")
+        except aiohttp.ClientError as e:
+            print(f"🔌 Attempt {attempt+1}: Connection error - {e}")
+        await asyncio.sleep(delay)
+    print(f"⛔ Failed to fetch data from {url} after {retries} attempts")
+    return None
+
 
 @bot.command(name="setuser")
 async def set_user(ctx, franchise_id: str, discord_id: str):
@@ -150,36 +167,37 @@ async def fetch_and_post_draft_updates():
         print("🔁 Running draft update loop...")
         url = f"https://www43.myfantasyleague.com/{SEASON_YEAR}/export?TYPE=draftResults&L={LEAGUE_ID}&JSON=1"
         async with aiohttp.ClientSession() as session:
-            async with session.get(url) as resp:
-                if resp.status != 200:
-                    return
-                data = await resp.json()
-                draft_unit = data.get("draftResults", {}).get("draftUnit", {})
-                picks = draft_unit.get("draftPick", [])
+            data = await fetch_with_retry(session, url)
+            if not data:
+                await asyncio.sleep(DRAFT_CHECK_INTERVAL)
+                continue
 
-                global draft_announced
-                if not draft_announced and picks:
-                    draft_announced = True
-                    await draft_channel.send(f"🏈 **The draft has begun!**\n{'-' * 40}")
+            draft_unit = data.get("draftResults", {}).get("draftUnit", {})
+            picks = draft_unit.get("draftPick", [])
 
-                for i, pick in enumerate(picks):
-                    ts = pick.get("timestamp")
-                    if not ts or ts in posted_picks:
-                        continue
-                    posted_picks.add(ts)
-                    next_pick = picks[i+1] if i+1 < len(picks) else None
-                    on_deck_pick = picks[i+2] if i+2 < len(picks) else None
-                    await draft_channel.send(format_draft_pick_message(pick, next_pick, on_deck_pick))
+            global draft_announced
+            if not draft_announced and picks:
+                draft_announced = True
+                await draft_channel.send(f"🏈 **The draft has begun!**\n{'-' * 40}")
 
-                    if next_pick:
-                        next_id = next_pick.get("franchise")
-                        if next_id in user_map and next_id not in notified_users:
-                            try:
-                                user = await bot.fetch_user(int(user_map[next_id]))
-                                await user.send(f"⏰ You're on the clock in the draft for {franchise_names.get(next_id)}!")
-                                notified_users.add(next_id)
-                            except Exception as e:
-                                print(f"⚠️ Could not DM user for franchise {next_id}: {e}")
+            for i, pick in enumerate(picks):
+                ts = pick.get("timestamp")
+                if not ts or ts in posted_picks:
+                    continue
+                posted_picks.add(ts)
+                next_pick = picks[i+1] if i+1 < len(picks) else None
+                on_deck_pick = picks[i+2] if i+2 < len(picks) else None
+                await draft_channel.send(format_draft_pick_message(pick, next_pick, on_deck_pick))
+
+                if next_pick:
+                    next_id = next_pick.get("franchise")
+                    if next_id in user_map and next_id not in notified_users:
+                        try:
+                            user = await bot.fetch_user(int(user_map[next_id]))
+                            await user.send(f"⏰ You're on the clock in the draft for {franchise_names.get(next_id)}!")
+                            notified_users.add(next_id)
+                        except Exception as e:
+                            print(f"⚠️ Could not DM user for franchise {next_id}: {e}")
 
         await asyncio.sleep(DRAFT_CHECK_INTERVAL)
 
@@ -193,8 +211,10 @@ async def fetch_and_post_transactions():
     while not bot.is_closed():
         url = f"https://www43.myfantasyleague.com/{SEASON_YEAR}/export?TYPE=transactions&L={LEAGUE_ID}&JSON=1"
         async with aiohttp.ClientSession() as session:
-            async with session.get(url) as resp:
-                data = await resp.json()
+            data = await fetch_with_retry(session, url)
+            if not data:
+                return
+
                 txns = data.get("transactions", {}).get("transaction", [])
                 if isinstance(txns, dict):
                     txns = [txns]
@@ -269,6 +289,15 @@ async def fetch_and_post_transactions():
                         print(f"❌ Error processing transaction {tx_id}: {e}")
 
         await asyncio.sleep(TRANSACTION_CHECK_INTERVAL)
+@bot.command(name="checkdraft")
+async def manual_check_draft(ctx):
+    await ctx.send("🔍 Checking draft status...")
+    await fetch_and_post_draft_updates()
+
+@bot.command(name="checktxns")
+async def manual_check_txns(ctx):
+    await ctx.send("🔍 Checking transactions...")
+    await fetch_and_post_transactions()
 
 bot.run(DISCORD_TOKEN)
 
