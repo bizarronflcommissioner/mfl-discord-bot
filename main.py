@@ -219,8 +219,7 @@ async def fetch_and_post_draft_updates():
                 global draft_announced
                 if not draft_announced and picks:
                     draft_announced = True
-                   # await draft_channel.send(f"🏈 **The draft has begun!**
-")  # restructured to single line{'-' * 40}")  # safely disabled for priming
+                   # await draft_channel.send(f"🏈 **The draft has begun!**")  # restructured to single line{'-' * 40}")  # safely disabled for priming
 
                 for i, pick in enumerate(picks):
                     ts = pick.get("timestamp")
