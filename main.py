@@ -15,6 +15,7 @@ DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 CHANNEL_ID = int(os.getenv("CHANNEL_ID"))  # Transactions channel
 DRAFT_CHANNEL_ID = int(os.getenv("DRAFT_CHANNEL_ID"))  # Draft channel
 LEAGUE_ID = os.getenv("LEAGUE_ID")
+MESSAGE_BOARD_ID = os.getenv("MESSAGE_BOARD_ID")
 SEASON_YEAR = 2025
 DRAFT_CHECK_INTERVAL = 300
 TRANSACTION_CHECK_INTERVAL = 300
@@ -30,6 +31,22 @@ posted_transactions = set()
 posted_picks = set()
 draft_announced = False
 notified_users = set()
+
+# Load posted IDs from file
+
+def load_posted_ids(filename):
+    try:
+        with open(filename, 'r') as f:
+            return set(json.load(f))
+    except (FileNotFoundError, json.JSONDecodeError):
+        return set()
+
+def save_posted_ids(filename, id_set):
+    with open(filename, 'w') as f:
+        json.dump(list(id_set), f)
+
+posted_transactions = load_posted_ids("posted_transactions.json")
+posted_picks = load_posted_ids("posted_picks.json")
 
 with open("user_map.json", "r") as f:
     user_map = json.load(f)
@@ -101,6 +118,68 @@ async def vacant_users(ctx):
     else:
         await ctx.send("❗ Vacant Franchises:\n" + "\n".join(unassigned))
 
+@bot.command(name="testclaims")
+async def test_claims(ctx):
+    await ctx.send("🔄 Testing claim sync...")
+    try:
+        success = await post_to_mfl_board(ctx.author.display_name, ctx.message.content)
+        if success:
+            await ctx.send("✅ Claim posted to MFL.")
+        else:
+            await ctx.send("⚠️ Failed to post claim.")
+    except Exception as e:
+        await ctx.send(f"❌ Error during sync: {e}")
+
+async def post_to_mfl_board(author: str, body: str):
+    message_board_id = os.getenv("MESSAGE_BOARD_ID")
+    league_id = os.getenv("LEAGUE_ID")
+    season_year = os.getenv("SEASON_YEAR", "2025")
+
+    if not league_id or not message_board_id:
+        print("❌ MFL credentials missing.")
+        return False
+
+    subject = f"Taxi Squad Claim - {author}"
+    formatted_message = f"**Posted by {author}**\n\n{body}\n\n{'-' * 40}"
+
+    post_url = f"https://www43.myfantasyleague.com/{season_year}/message_board_post"
+    payload = {
+        "L": league_id,
+        "MB": message_board_id,
+        "M": formatted_message,
+        "SUBJECT": subject
+    }
+
+    async with aiohttp.ClientSession() as session:
+        async with session.post(post_url, data=payload) as resp:
+            if resp.status == 200:
+                print(f"✅ Posted claim from {author}")
+                return True
+            else:
+                print(f"❌ Failed to post to MFL: {resp.status}")
+                return False
+
+@bot.event
+async def on_ready():
+    print(f"✅ Logged in as {bot.user}")
+    await load_franchises()
+    await load_players()
+    bot.loop.create_task(fetch_and_post_draft_updates())
+    bot.loop.create_task(fetch_and_post_transactions())
+
+@bot.event
+async def on_message(message):
+    if message.author == bot.user:
+        return
+
+    if message.channel.id == 1361398440948666599:
+        content = message.content.strip()
+        if content:
+            await post_to_mfl_board(author=message.author.display_name, body=content)
+            await message.channel.send("📬 Claim posted to MFL.")
+
+    await bot.process_commands(message)
+
 async def load_franchises():
     url = f"https://www43.myfantasyleague.com/{SEASON_YEAR}/export?TYPE=league&L={LEAGUE_ID}&JSON=1"
     async with aiohttp.ClientSession() as session:
@@ -119,26 +198,6 @@ async def load_players():
                 name = player.get("name", f"Player #{pid}")
                 if pid:
                     player_names[pid] = name
-
-@bot.command(name="franchises")
-async def list_franchises(ctx):
-    if not franchise_names:
-        await ctx.send("No franchise data loaded.")
-        return
-
-    lines = [f"{fid}: {name}" for fid, name in franchise_names.items()]
-    chunks = [lines[i:i + 30] for i in range(0, len(lines), 30)]  # Discord message limit workaround
-
-    for chunk in chunks:
-        await ctx.send("**Franchise IDs:**\n" + "\n".join(chunk))
-
-@bot.event
-async def on_ready():
-    print(f"✅ Logged in as {bot.user}")
-    await load_franchises()
-    await load_players()
-    bot.loop.create_task(fetch_and_post_draft_updates())
-    bot.loop.create_task(fetch_and_post_transactions())
 
 async def fetch_and_post_draft_updates():
     draft_channel = bot.get_channel(DRAFT_CHANNEL_ID)
@@ -167,6 +226,7 @@ async def fetch_and_post_draft_updates():
                     if not ts or ts in posted_picks:
                         continue
                     posted_picks.add(ts)
+                    save_posted_ids("posted_picks.json", posted_picks)
                     next_pick = picks[i+1] if i+1 < len(picks) else None
                     on_deck_pick = picks[i+2] if i+2 < len(picks) else None
                     await draft_channel.send(format_draft_pick_message(pick, next_pick, on_deck_pick))
@@ -204,6 +264,7 @@ async def fetch_and_post_transactions():
                     if not tx_id or tx_id in posted_transactions:
                         continue
                     posted_transactions.add(tx_id)
+                    save_posted_ids("posted_transactions.json", posted_transactions)
                     t_type = tx.get("type", "").lower()
                     f_id = tx.get("franchise", "0000")
                     team = franchise_names.get(f_id, f"Franchise {f_id}")
