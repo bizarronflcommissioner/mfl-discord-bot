@@ -219,7 +219,8 @@ async def fetch_and_post_draft_updates():
                 global draft_announced
                 if not draft_announced and picks:
                     draft_announced = True
-                    await draft_channel.send(f"🏈 **The draft has begun!**\n{'-' * 40}")
+                    # await draft_channel.send(f"🏈 **The draft has begun!**
+{'-' * 40}")  # temporarily disabled for safe priming
 
                 for i, pick in enumerate(picks):
                     ts = pick.get("timestamp")
@@ -229,14 +230,14 @@ async def fetch_and_post_draft_updates():
                     save_posted_ids("posted_picks.json", posted_picks)
                     next_pick = picks[i+1] if i+1 < len(picks) else None
                     on_deck_pick = picks[i+2] if i+2 < len(picks) else None
-                    await draft_channel.send(format_draft_pick_message(pick, next_pick, on_deck_pick))
+                    # await draft_channel.send(format_draft_pick_message(pick, next_pick, on_deck_pick))  # temporarily disabled for safe priming
 
                     if next_pick:
                         next_id = next_pick.get("franchise")
                         if next_id in user_map and next_id not in notified_users:
                             try:
                                 user = await bot.fetch_user(int(user_map[next_id]))
-                                await user.send(f"⏰ You're on the clock in the draft for {franchise_names.get(next_id)}!")
+                                # await user.send(f"⏰ You're on the clock in the draft for {franchise_names.get(next_id)}!")  # temporarily disabled
                                 notified_users.add(next_id)
                             except Exception as e:
                                 print(f"⚠️ Could not DM user for franchise {next_id}: {e}")
@@ -278,7 +279,7 @@ async def fetch_and_post_transactions():
                                 salary = float(data[1]) / 1000000
                                 player = player_names.get(pid, f"Player #{pid}")
                                 msg = f"💰 Auction Win! {team} won {player} for ${salary:.1f}M\n{'-' * 40}"
-                                await channel.send(msg)
+                                # await channel.send(msg)  # temporarily disabled for safe priming
 
                         elif t_type == "free_agent":
                             transaction = tx.get("transaction", "")
