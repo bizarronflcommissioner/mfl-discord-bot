@@ -200,9 +200,10 @@ async def load_players():
                     player_names[pid] = name
 
 async def fetch_and_post_draft_updates():
-    draft_channel = bot.get_channel(DRAFT_CHANNEL_ID)
-    if not draft_channel:
-        print("❌ Could not find the draft channel.")
+    try:
+        draft_channel = await bot.fetch_channel(DRAFT_CHANNEL_ID)
+    except Exception as e:
+        print(f"❌ Could not fetch draft channel ID {DRAFT_CHANNEL_ID}: {e}")
         return
 
     while not bot.is_closed():
