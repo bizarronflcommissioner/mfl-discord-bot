@@ -15,7 +15,6 @@ DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 CHANNEL_ID = int(os.getenv("CHANNEL_ID"))  # Transactions channel
 DRAFT_CHANNEL_ID = int(os.getenv("DRAFT_CHANNEL_ID"))  # Draft channel
 LEAGUE_ID = os.getenv("LEAGUE_ID")
-MESSAGE_BOARD_ID = os.getenv("MESSAGE_BOARD_ID")
 SEASON_YEAR = 2025
 DRAFT_CHECK_INTERVAL = 300
 TRANSACTION_CHECK_INTERVAL = 300
@@ -31,22 +30,6 @@ posted_transactions = set()
 posted_picks = set()
 draft_announced = False
 notified_users = set()
-
-# Load posted IDs from file
-
-def load_posted_ids(filename):
-    try:
-        with open(filename, 'r') as f:
-            return set(json.load(f))
-    except (FileNotFoundError, json.JSONDecodeError):
-        return set()
-
-def save_posted_ids(filename, id_set):
-    with open(filename, 'w') as f:
-        json.dump(list(id_set), f)
-
-posted_transactions = load_posted_ids("posted_transactions.json")
-posted_picks = load_posted_ids("posted_picks.json")
 
 with open("user_map.json", "r") as f:
     user_map = json.load(f)
@@ -118,68 +101,6 @@ async def vacant_users(ctx):
     else:
         await ctx.send("❗ Vacant Franchises:\n" + "\n".join(unassigned))
 
-@bot.command(name="testclaims")
-async def test_claims(ctx):
-    await ctx.send("🔄 Testing claim sync...")
-    try:
-        success = await post_to_mfl_board(ctx.author.display_name, ctx.message.content)
-        if success:
-            await ctx.send("✅ Claim posted to MFL.")
-        else:
-            await ctx.send("⚠️ Failed to post claim.")
-    except Exception as e:
-        await ctx.send(f"❌ Error during sync: {e}")
-
-async def post_to_mfl_board(author: str, body: str):
-    message_board_id = os.getenv("MESSAGE_BOARD_ID")
-    league_id = os.getenv("LEAGUE_ID")
-    season_year = os.getenv("SEASON_YEAR", "2025")
-
-    if not league_id or not message_board_id:
-        print("❌ MFL credentials missing.")
-        return False
-
-    subject = f"Taxi Squad Claim - {author}"
-    formatted_message = f"**Posted by {author}**\n\n{body}\n\n{'-' * 40}"
-
-    post_url = f"https://www43.myfantasyleague.com/{season_year}/message_board_post"
-    payload = {
-        "L": league_id,
-        "MB": message_board_id,
-        "M": formatted_message,
-        "SUBJECT": subject
-    }
-
-    async with aiohttp.ClientSession() as session:
-        async with session.post(post_url, data=payload) as resp:
-            if resp.status == 200:
-                print(f"✅ Posted claim from {author}")
-                return True
-            else:
-                print(f"❌ Failed to post to MFL: {resp.status}")
-                return False
-
-@bot.event
-async def on_ready():
-    print(f"✅ Logged in as {bot.user}")
-    await load_franchises()
-    await load_players()
-    bot.loop.create_task(fetch_and_post_draft_updates())
-    bot.loop.create_task(fetch_and_post_transactions())
-
-@bot.event
-async def on_message(message):
-    if message.author == bot.user:
-        return
-
-    if message.channel.id == 1361398440948666599:
-        content = message.content.strip()
-        if content:
-            await post_to_mfl_board(author=message.author.display_name, body=content)
-            await message.channel.send("📬 Claim posted to MFL.")
-
-    await bot.process_commands(message)
-
 async def load_franchises():
     url = f"https://www43.myfantasyleague.com/{SEASON_YEAR}/export?TYPE=league&L={LEAGUE_ID}&JSON=1"
     async with aiohttp.ClientSession() as session:
@@ -199,11 +120,30 @@ async def load_players():
                 if pid:
                     player_names[pid] = name
 
+@bot.command(name="franchises")
+async def list_franchises(ctx):
+    if not franchise_names:
+        await ctx.send("No franchise data loaded.")
+        return
+
+    lines = [f"{fid}: {name}" for fid, name in franchise_names.items()]
+    chunks = [lines[i:i + 30] for i in range(0, len(lines), 30)]  # Discord message limit workaround
+
+    for chunk in chunks:
+        await ctx.send("**Franchise IDs:**\n" + "\n".join(chunk))
+
+@bot.event
+async def on_ready():
+    print(f"✅ Logged in as {bot.user}")
+    await load_franchises()
+    await load_players()
+    bot.loop.create_task(fetch_and_post_draft_updates())
+    bot.loop.create_task(fetch_and_post_transactions())
+
 async def fetch_and_post_draft_updates():
-    try:
-        draft_channel = await bot.fetch_channel(DRAFT_CHANNEL_ID)
-    except Exception as e:
-        print(f"❌ Could not fetch draft channel ID {DRAFT_CHANNEL_ID}: {e}")
+    draft_channel = bot.get_channel(DRAFT_CHANNEL_ID)
+    if not draft_channel:
+        print("❌ Could not find the draft channel.")
         return
 
     while not bot.is_closed():
@@ -220,24 +160,23 @@ async def fetch_and_post_draft_updates():
                 global draft_announced
                 if not draft_announced and picks:
                     draft_announced = True
-                   # await draft_channel.send(f"🏈 **The draft has begun!**")  # restructured to single line{'-' * 40}")  # safely disabled for priming
+                    await draft_channel.send(f"🏈 **The draft has begun!**\n{'-' * 40}")
 
                 for i, pick in enumerate(picks):
                     ts = pick.get("timestamp")
                     if not ts or ts in posted_picks:
                         continue
                     posted_picks.add(ts)
-                    save_posted_ids("posted_picks.json", posted_picks)
                     next_pick = picks[i+1] if i+1 < len(picks) else None
                     on_deck_pick = picks[i+2] if i+2 < len(picks) else None
-                    # await draft_channel.send(format_draft_pick_message(pick, next_pick, on_deck_pick))  # temporarily disabled for safe priming
+                    await draft_channel.send(format_draft_pick_message(pick, next_pick, on_deck_pick))
 
                     if next_pick:
                         next_id = next_pick.get("franchise")
                         if next_id in user_map and next_id not in notified_users:
                             try:
                                 user = await bot.fetch_user(int(user_map[next_id]))
-                                # await user.send(f"⏰ You're on the clock in the draft for {franchise_names.get(next_id)}!")  # temporarily disabled
+                                await user.send(f"⏰ You're on the clock in the draft for {franchise_names.get(next_id)}!")
                                 notified_users.add(next_id)
                             except Exception as e:
                                 print(f"⚠️ Could not DM user for franchise {next_id}: {e}")
@@ -245,25 +184,17 @@ async def fetch_and_post_draft_updates():
         await asyncio.sleep(DRAFT_CHECK_INTERVAL)
 
 async def fetch_and_post_transactions():
-    try:
-        channel = await bot.fetch_channel(CHANNEL_ID)
-    except Exception as e:
-        print(f"❌ Could not fetch transactions channel ID {CHANNEL_ID}: {e}")
+    channel = bot.get_channel(CHANNEL_ID)
+    if not channel:
+        print(f"❌ Could not find transactions channel ID: {CHANNEL_ID}")
         return
-
     print("🔁 Running transaction update loop...")
 
     while not bot.is_closed():
         url = f"https://www43.myfantasyleague.com/{SEASON_YEAR}/export?TYPE=transactions&L={LEAGUE_ID}&JSON=1"
         async with aiohttp.ClientSession() as session:
             async with session.get(url) as resp:
-                try:
-                    data = await resp.json()
-                except Exception as e:
-                    print(f"❌ Failed to parse transactions JSON: {e}")
-                    await asyncio.sleep(TRANSACTION_CHECK_INTERVAL)
-                    continue
-
+                data = await resp.json()
                 txns = data.get("transactions", {}).get("transaction", [])
                 if isinstance(txns, dict):
                     txns = [txns]
@@ -273,7 +204,6 @@ async def fetch_and_post_transactions():
                     if not tx_id or tx_id in posted_transactions:
                         continue
                     posted_transactions.add(tx_id)
-                    save_posted_ids("posted_transactions.json", posted_transactions)
                     t_type = tx.get("type", "").lower()
                     f_id = tx.get("franchise", "0000")
                     team = franchise_names.get(f_id, f"Franchise {f_id}")
@@ -287,7 +217,7 @@ async def fetch_and_post_transactions():
                                 salary = float(data[1]) / 1000000
                                 player = player_names.get(pid, f"Player #{pid}")
                                 msg = f"💰 Auction Win! {team} won {player} for ${salary:.1f}M\n{'-' * 40}"
-                                # await channel.send(msg)
+                                await channel.send(msg)
 
                         elif t_type == "free_agent":
                             transaction = tx.get("transaction", "")
@@ -306,18 +236,18 @@ async def fetch_and_post_transactions():
                             for pid in promoted:
                                 if pid:
                                     player = player_names.get(pid, f"Player #{pid}")
-                                    await channel.send(f"🛫 Taxi Move ({timestamp}): {team} promoted {player}\n{'-' * 40}")
+                                    await channel.send(f"🛫 Taxi Move ({timestamp}): {team} promoted {player} from taxi\n{'-' * 40}")
                             for pid in demoted:
                                 if pid:
                                     player = player_names.get(pid, f"Player #{pid}")
-                                    await channel.send(f"🛬 Taxi Move ({timestamp}): {team} demoted {player}\n{'-' * 40}")
+                                    await channel.send(f"🛬 Taxi Move ({timestamp}): {team} demoted {player} to taxi\n{'-' * 40}")
 
                         elif t_type == "ir":
                             act = tx.get("activated", "").strip(",")
                             deact = tx.get("deactivated", "").strip(",")
                             if act:
                                 player = player_names.get(act, f"Player #{act}")
-                                await channel.send(f"🏥 IR Alert ({timestamp}): {team} activated {player}\n{'-' * 40}")
+                                await channel.send(f"🏥 IR Alert ({timestamp}): {team} activated {player} from IR\n{'-' * 40}")
                             elif deact:
                                 player = player_names.get(deact, f"Player #{deact}")
                                 await channel.send(f"🏥 IR Alert ({timestamp}): {team} moved {player} to IR\n{'-' * 40}")
@@ -328,15 +258,16 @@ async def fetch_and_post_transactions():
                             other_id = tx.get("franchise2")
                             other_team = franchise_names.get(other_id, f"Franchise {other_id}")
                             note = tx.get("comments", "")
-                            msg1 = f"🔄 Trade Alert ({timestamp})\n{team} traded: {', '.join(format_item(i) for i in sent if i)}\n{other_team} traded: {', '.join(format_item(i) for i in received if i)}"
+
+                            msg1 = f"🔄 Trade Alert ({timestamp})\n{team} traded: {', '.join(format_item(i) for i in sent if i)}\n{other_team}  traded: {', '.join(format_item(i) for i in received if i)}"
                             await channel.send(msg1 + "\n" + "-" * 40)
+
                             if note:
-                                msg2 = f"📝 Trade Note: {note}"
-                                await channel.send(msg2)
+                                msg2 = f"🔄 Trade Alert ({timestamp})\n{team} traded: {', '.join(format_item(i) for i in received if i)}\n{other_team}  traded: {', '.join(format_item(i) for i in sent if i)}\nNote: {note}"
+                                await channel.send(msg2 + "\n" + "-" * 40)
                     except Exception as e:
-                        print(f"❌ Error posting transaction {tx_id}: {e}")
+                        print(f"❌ Error processing transaction {tx_id}: {e}")
 
         await asyncio.sleep(TRANSACTION_CHECK_INTERVAL)
-
 
 bot.run(DISCORD_TOKEN)
