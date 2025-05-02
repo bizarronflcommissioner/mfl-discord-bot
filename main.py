@@ -220,7 +220,7 @@ async def fetch_and_post_draft_updates():
                 if not draft_announced and picks:
                     draft_announced = True
                     # await draft_channel.send(f"🏈 **The draft has begun!**
-{'-' * 40}")  # temporarily disabled for safe priming
+{'-' * 40}")  # temporarily disabled for safe priming  # temporarily disabled for safe priming
 
                 for i, pick in enumerate(picks):
                     ts = pick.get("timestamp")
