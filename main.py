@@ -244,17 +244,25 @@ async def fetch_and_post_draft_updates():
         await asyncio.sleep(DRAFT_CHECK_INTERVAL)
 
 async def fetch_and_post_transactions():
-    channel = bot.get_channel(CHANNEL_ID)
-    if not channel:
-        print(f"❌ Could not find transactions channel ID: {CHANNEL_ID}")
+    try:
+        channel = await bot.fetch_channel(CHANNEL_ID)
+    except Exception as e:
+        print(f"❌ Could not fetch transactions channel ID {CHANNEL_ID}: {e}")
         return
+
     print("🔁 Running transaction update loop...")
 
     while not bot.is_closed():
         url = f"https://www43.myfantasyleague.com/{SEASON_YEAR}/export?TYPE=transactions&L={LEAGUE_ID}&JSON=1"
         async with aiohttp.ClientSession() as session:
             async with session.get(url) as resp:
-                data = await resp.json()
+                try:
+                    data = await resp.json()
+                except Exception as e:
+                    print(f"❌ Failed to parse transactions JSON: {e}")
+                    await asyncio.sleep(TRANSACTION_CHECK_INTERVAL)
+                    continue
+
                 txns = data.get("transactions", {}).get("transaction", [])
                 if isinstance(txns, dict):
                     txns = [txns]
@@ -278,7 +286,7 @@ async def fetch_and_post_transactions():
                                 salary = float(data[1]) / 1000000
                                 player = player_names.get(pid, f"Player #{pid}")
                                 msg = f"💰 Auction Win! {team} won {player} for ${salary:.1f}M\n{'-' * 40}"
-                                # await channel.send(msg)  # temporarily disabled for safe priming
+                                # await channel.send(msg)
 
                         elif t_type == "free_agent":
                             transaction = tx.get("transaction", "")
@@ -297,18 +305,18 @@ async def fetch_and_post_transactions():
                             for pid in promoted:
                                 if pid:
                                     player = player_names.get(pid, f"Player #{pid}")
-                                    await channel.send(f"🛫 Taxi Move ({timestamp}): {team} promoted {player} from taxi\n{'-' * 40}")
+                                    await channel.send(f"🛫 Taxi Move ({timestamp}): {team} promoted {player}\n{'-' * 40}")
                             for pid in demoted:
                                 if pid:
                                     player = player_names.get(pid, f"Player #{pid}")
-                                    await channel.send(f"🛬 Taxi Move ({timestamp}): {team} demoted {player} to taxi\n{'-' * 40}")
+                                    await channel.send(f"🛬 Taxi Move ({timestamp}): {team} demoted {player}\n{'-' * 40}")
 
                         elif t_type == "ir":
                             act = tx.get("activated", "").strip(",")
                             deact = tx.get("deactivated", "").strip(",")
                             if act:
                                 player = player_names.get(act, f"Player #{act}")
-                                await channel.send(f"🏥 IR Alert ({timestamp}): {team} activated {player} from IR\n{'-' * 40}")
+                                await channel.send(f"🏥 IR Alert ({timestamp}): {team} activated {player}\n{'-' * 40}")
                             elif deact:
                                 player = player_names.get(deact, f"Player #{deact}")
                                 await channel.send(f"🏥 IR Alert ({timestamp}): {team} moved {player} to IR\n{'-' * 40}")
@@ -319,16 +327,15 @@ async def fetch_and_post_transactions():
                             other_id = tx.get("franchise2")
                             other_team = franchise_names.get(other_id, f"Franchise {other_id}")
                             note = tx.get("comments", "")
-
-                            msg1 = f"🔄 Trade Alert ({timestamp})\n{team} traded: {', '.join(format_item(i) for i in sent if i)}\n{other_team}  traded: {', '.join(format_item(i) for i in received if i)}"
+                            msg1 = f"🔄 Trade Alert ({timestamp})\n{team} traded: {', '.join(format_item(i) for i in sent if i)}\n{other_team} traded: {', '.join(format_item(i) for i in received if i)}"
                             await channel.send(msg1 + "\n" + "-" * 40)
-
                             if note:
-                                msg2 = f"🔄 Trade Alert ({timestamp})\n{team} traded: {', '.join(format_item(i) for i in received if i)}\n{other_team}  traded: {', '.join(format_item(i) for i in sent if i)}\nNote: {note}"
-                                await channel.send(msg2 + "\n" + "-" * 40)
+                                msg2 = f"📝 Trade Note: {note}"
+                                await channel.send(msg2)
                     except Exception as e:
-                        print(f"❌ Error processing transaction {tx_id}: {e}")
+                        print(f"❌ Error posting transaction {tx_id}: {e}")
 
         await asyncio.sleep(TRANSACTION_CHECK_INTERVAL)
+
 
 bot.run(DISCORD_TOKEN)
