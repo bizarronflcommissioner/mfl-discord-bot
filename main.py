@@ -223,12 +223,19 @@ async def fetch_and_post_transactions():
                             transaction = tx.get("transaction", "")
                             adds = re.findall(r"\|(\d+)", transaction)
                             drops = re.findall(r"(\d+),\|", transaction)
-                            for pid in drops:
-                                player = player_names.get(pid, f"Player #{pid}")
-                                await channel.send(f"🔴 Add/Drop Alert ({timestamp}): {team} released {player}\n{'-' * 40}")
-                            for pid in adds:
-                                player = player_names.get(pid, f"Player #{pid}")
-                                await channel.send(f"🟢 Add/Drop Alert ({timestamp}): {team} signed {player}\n{'-' * 40}")
+
+                            drop_list = [player_names.get(pid, f"Player #{pid}") for pid in drops]
+                            add_list = [player_names.get(pid, f"Player #{pid}") for pid in adds]
+
+                            if drop_list or add_list:
+                                msg_lines = [f"🔁 Add/Drop Transaction ({timestamp}) for {team}"]
+                                if drop_list:
+                                    msg_lines.append(f"🔴 Dropped: {', '.join(drop_list)}")
+                                if add_list:
+                                    msg_lines.append(f"🟢 Added: {', '.join(add_list)}")
+                                msg_lines.append("-" * 40)
+                                await channel.send("\n".join(msg_lines))
+
 
                         elif t_type == "taxi":
                             promoted = tx.get("promoted", "").strip(",").split(",")
