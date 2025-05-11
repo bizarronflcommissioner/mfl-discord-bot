@@ -18,7 +18,6 @@ LEAGUE_ID = os.getenv("LEAGUE_ID")
 SEASON_YEAR = 2025
 DRAFT_CHECK_INTERVAL = 300
 TRANSACTION_CHECK_INTERVAL = 300
-
 intents = discord.Intents.default()
 intents.members = True
 intents.message_content = True
@@ -221,8 +220,15 @@ async def fetch_and_post_transactions():
 
                         elif t_type == "free_agent":
                             transaction = tx.get("transaction", "")
-                            adds = re.findall(r"\|(\d+)", transaction)
-                            drops = re.findall(r"(\d+),\|", transaction)
+                            parts = transaction.split("|")
+                            drops = []
+                            adds = []
+
+                            if len(parts) == 2:
+                                # Left side = drop(s), right side = add(s)
+                                drops = parts[0].strip(",").split(",") if parts[0] else []
+                                adds = parts[1].strip(",").split(",") if parts[1] else []
+
 
                             drop_list = [player_names.get(pid, f"Player #{pid}") for pid in drops]
                             add_list = [player_names.get(pid, f"Player #{pid}") for pid in adds]
