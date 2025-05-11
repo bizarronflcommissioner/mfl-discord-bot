@@ -220,35 +220,27 @@ async def fetch_and_post_transactions():
 
                         elif t_type == "free_agent":
                             transaction = tx.get("transaction", "")
-                            print(f"🔍 Raw transaction string: {transaction}")
                             parts = transaction.split("|")
                             drops = []
                             adds = []
 
                             if len(parts) == 2:
-                                if parts[0] and parts[1]:
-                                # Drop left, add right
-                                drops = parts[0].strip(",").split(",")
-                                adds = parts[1].strip(",").split(",")
-                            elif parts[0] and not parts[1]:
-                                # Only adds
-                                adds = parts[0].strip(",").split(",")
-                            elif parts[1] and not parts[0]:
-                                # Only drops
-                                drops = parts[1].strip(",").split(",")
+                                # Left side = drop(s), right side = add(s)
+                                drops = parts[0].strip(",").split(",") if parts[0] else []
+                                adds = parts[1].strip(",").split(",") if parts[1] else []
 
-                        drop_list = [player_names.get(pid, f"Player #{pid}") for pid in drops]
-                        add_list = [player_names.get(pid, f"Player #{pid}") for pid in adds]
 
-                        if drop_list or add_list:
-                            msg_lines = [f"🔁 Add/Drop Transaction ({timestamp}) for {team}"]
-                            if drop_list:
-                                msg_lines.append(f"🔴 Dropped: {', '.join(drop_list)}")
-                            if add_list:
-                                msg_lines.append(f"🟢 Added: {', '.join(add_list)}")
-                            msg_lines.append("-" * 40)
-                            await channel.send("\n".join(msg_lines))
+                            drop_list = [player_names.get(pid, f"Player #{pid}") for pid in drops]
+                            add_list = [player_names.get(pid, f"Player #{pid}") for pid in adds]
 
+                            if drop_list or add_list:
+                                msg_lines = [f"🔁 Add/Drop Transaction ({timestamp}) for {team}"]
+                                if drop_list:
+                                    msg_lines.append(f"🔴 Dropped: {', '.join(drop_list)}")
+                                if add_list:
+                                    msg_lines.append(f"🟢 Added: {', '.join(add_list)}")
+                                msg_lines.append("-" * 40)
+                                await channel.send("\n".join(msg_lines))
 
 
                         elif t_type == "taxi":
