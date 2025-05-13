@@ -68,13 +68,14 @@ def format_draft_pick_message(pick, next_pick=None, on_deck_pick=None):
 
     if next_pick:
         next_id = next_pick.get("franchise")
-        next_mention = f"<@{user_map.get(next_id)}>" if next_id in user_map else franchise_names.get(next_id, f"Franchise {next_id}")
+        next_mention = f"<@{user_map[next_id]}>" if next_id in user_map and str(user_map[next_id]).isdigit() else franchise_names.get(next_id, f"Franchise {next_id}")
         msg += f"\n\U0001F552 On the clock: {next_mention}"
 
     if on_deck_pick:
         deck_id = on_deck_pick.get("franchise")
-        deck_team = franchise_names.get(deck_id, f"Franchise {deck_id}")
-        msg += f"\n\U0001F4CB On deck: {deck_team}"
+        deck_mention = f"<@{user_map[deck_id]}>" if deck_id in user_map and str(user_map[deck_id]).isdigit() else franchise_names.get(deck_id, f"Franchise {deck_id}")
+        msg += f"\n\U0001F4CB On deck: {deck_mention}"
+
 
     return msg + "\n" + "-" * 40
 
